@@ -460,14 +460,14 @@
           (emitln then "} else {")
           (emitln else "}"))))))
 
-(defmethod emit* :case*
-  [{:keys [v tests thens default env]}]
+(defmethod emit* :case
+  [{:keys [test tests thens default env]}]
   (when (= (:context env) :expr)
     (emitln "(function(){"))
   (let [gs (gensym "caseval__")]
     (when (= :expr (:context env))
       (emitln "var " gs ";"))
-    (emitln "switch (" v ") {")
+    (emitln "switch (" test ") {")
     (doseq [[ts then] (partition 2 (interleave tests thens))]
       (doseq [test ts]
         (emitln "case " test ":"))
@@ -854,21 +854,21 @@
     (when (and statements (= :expr context)) (emitln "})()"))))
 
 (defmethod emit* :try
-  [{:keys [env try catch name finally]}]
+  [{:keys [env body catches finally]}]
   (let [context (:context env)]
     (if (or name finally)
       (do
         (when (= :expr context)
           (emits "(function (){"))
-        (emits "try{" try "}")
-        (when name
-          (emits "catch (" (munge name) "){" catch "}"))
+        (emits "try{" body "}")
+        (when-let [[catch] catches]
+          (emits "catch (" (munge (-> catch :local :name)) "){" catch "}"))
         (when finally
           (assert (not= :const (:op finally)) "finally block cannot contain constant")
           (emits "finally {" finally "}"))
         (when (= :expr context)
           (emits "})()")))
-      (emits try))))
+      (emits body))))
 
 (defn emit-let
   [{:keys [bindings expr env]} is-loop]

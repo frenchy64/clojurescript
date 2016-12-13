@@ -1154,14 +1154,14 @@
     {:env env :op :if :form form
      :test test-expr :then then-expr :else else-expr
      :unchecked *unchecked-if*
-     :children [test-expr then-expr else-expr]}))
+     :children [:test :then :else]}))
 
 (defmethod parse 'case*
-  [op env [_ sym tests thens default :as form] name _]
-  (assert (symbol? sym) "case* must switch on symbol")
+  [op env [_ test tests thens default :as form] name _]
+  (assert (symbol? test) "case* must switch on symbol")
   (assert (every? vector? tests) "case* tests must be grouped in vectors")
   (let [expr-env (assoc env :context :expr)
-        v        (disallowing-recur (analyze expr-env sym))
+        test     (disallowing-recur (analyze expr-env test))
         tests    (mapv #(mapv (fn [t] (analyze expr-env t)) %) tests)
         thens    (mapv #(analyze env %) thens)
         default  (analyze env default)]
@@ -1172,16 +1172,16 @@
                              ((some-fn number? string? char?) (:form t)))))
               (apply concat tests))
       "case* tests must be numbers, strings, or constants")
-    {:env env :op :case* :form form
-     :v v :tests tests :thens thens :default default
-     :children (vec (concat [v] tests thens (if default [default])))}))
+    {:env env :op :case :form form
+     :test test :tests tests :thens thens :default default
+     :children [:test :tests :thens :default]}))
 
 (defmethod parse 'throw
-  [op env [_ throw :as form] name _]
-  (let [throw-expr (disallowing-recur (analyze (assoc env :context :expr) throw))]
+  [op env [_ exception :as form] name _]
+  (let [exception-expr (disallowing-recur (analyze (assoc env :context :expr) exception))]
     {:env env :op :throw :form form
-     :throw throw-expr
-     :children [throw-expr]}))
+     :exception exception-expr
+     :children [:exception]}))
 
 (defmethod parse 'try
   [op env [_ & body :as form] name _]
@@ -1210,8 +1210,8 @@
                 :done (throw (error env "Unexpected form after finally"))))
             parser))
 
-        finally (when (seq fblock)
-                  (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
+        finally-expr (when (seq fblock)
+                       (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
         e (when (or (seq cblocks) dblock) (gensym "e"))
         default (if-let [[_ _ name & cb] dblock]
                   `(cljs.core/let [~name ~e] ~@cb)
@@ -1233,16 +1233,29 @@
                          :line (get-line e env)
                          :column (get-col e env)})
                  locals)
-        catch (when cblock
-                (analyze (assoc catchenv :locals locals) cblock))
-        try (analyze (if (or e finally) catchenv env) `(do ~@body))]
+        catch-expr (when cblock
+                     (assoc (analyze (assoc catchenv :locals locals) cblock)
+                            :op :catch
+                            ;; FIXME this isn't a real binding yet - Ambrose
+                            :local {:op :binding
+                                    :name e
+                                    :line (get-line e env)
+                                    :column (get-col e env)}))
+        body-expr (analyze (if (or e finally-expr) catchenv env) `(do ~@body))]
 
-    {:env env :op :try :form form
-     :try try
-     :finally finally
-     :name e
-     :catch catch
-     :children [try catch finally]}))
+    (merge
+      {:env env :op :try :form form
+       :body body-expr
+       :children (vec
+                   (concat [:body]
+                           (when catch-expr
+                             [:catches])
+                           (when finally-expr
+                             [:finally])))}
+      (when catch-expr
+        {:catches [catch-expr]})
+      (when finally-expr
+        {:finally finally-expr}))))
 
 (defn valid-proto [x]
   (when (symbol? x) x))
@@ -1389,7 +1402,7 @@
             {:tag tag}))
         (when dynamic {:dynamic true})
         (when export-as {:export export-as})
-        (when init-expr {:children [init-expr]})))))
+        (when init-expr {:children [:init]})))))
 
 (defn analyze-fn-method-param [env]
   (fn [[locals params] name]
