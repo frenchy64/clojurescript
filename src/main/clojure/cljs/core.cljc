@@ -829,7 +829,7 @@
 
 (core/defn- simple-test-expr? [env ast]
   (core/and
-    (#{:var :invoke :constant :dot :js} (:op ast))
+    (#{:var :binding :local :invoke :const :host-field :host-call :js :js-var} (:op ast))
     ('#{boolean seq} (cljs.analyzer/infer-tag env ast))))
 
 (core/defmacro and
@@ -2477,7 +2477,7 @@
   ([]
    '(.-EMPTY cljs.core/List))
   ([x & xs]
-   (if (= :constant (:op (cljs.analyzer/no-warn (cljs.analyzer/analyze &env x))))
+   (if (= :const (:op (cljs.analyzer/no-warn (cljs.analyzer/analyze &env x))))
      `(-conj (list ~@xs) ~x)
      `(let [x# ~x]
         (-conj (list ~@xs) x#)))))
@@ -2497,7 +2497,7 @@
   ([] '(.-EMPTY cljs.core/PersistentArrayMap))
   ([& kvs]
    (core/let [keys (map first (partition 2 kvs))]
-     (if (core/and (every? #(= (:op %) :constant)
+     (if (core/and (every? #(= (:op %) :const)
                      (map #(cljs.analyzer/no-warn (cljs.analyzer/analyze &env %)) keys))
            (= (count (into #{} keys)) (count keys)))
        `(cljs.core/PersistentArrayMap. nil ~(clojure.core// (count kvs) 2) (array ~@kvs) nil)
@@ -2517,7 +2517,7 @@
   ([] `(.-EMPTY cljs.core/PersistentHashSet))
   ([& xs]
     (if (core/and (core/<= (count xs) 8)
-                  (every? #(= (:op %) :constant)
+                  (every? #(= (:op %) :const)
                     (map #(cljs.analyzer/no-warn (cljs.analyzer/analyze &env %)) xs))
                   (= (count (into #{} xs)) (count xs)))
       `(cljs.core/PersistentHashSet. nil

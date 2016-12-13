@@ -953,18 +953,22 @@
 (defmethod resolve* :node
   [sym full-ns current-ns]
   {:name (symbol (str current-ns) (str (munge-node-lib full-ns) "." (name sym)))
-   :ns current-ns})
+   :ns current-ns
+   :op :var})
 
 (defmethod resolve* :global
   [sym full-ns current-ns]
   {:name (symbol (str current-ns) (str (munge-global-export full-ns) "." (name sym)))
-   :ns current-ns})
+   :ns current-ns
+   :op :var})
 
 (defmethod resolve* :default
   [sym full-ns current-ns]
   (merge (gets @env/*compiler* ::namespaces full-ns :defs (symbol (name sym)))
     {:name (symbol (str full-ns) (str (name sym)))
-     :ns full-ns}))
+     :ns full-ns
+     :form sym
+     :op :var}))
 
 (defn required? [ns env]
   (or (contains? (set (vals (gets env :ns :requires))) ns)
@@ -997,14 +1001,26 @@
 
 (defn resolve-var
   "Resolve a var. Accepts a side-effecting confirm fn for producing
-   warnings about unresolved vars."
+   warnings about unresolved vars.
+  
+  Returns a map:
+  
+  :name   a possibly qualified symbol denoting the original form
+  :ns     a symbol denoting the fully qualified namespace of the variable
+  :tag    a tag"
   ([env sym] (resolve-var env sym nil))
   ([env sym confirm]
+   {:post [(keyword? (:op %))]}
+   ;; loop for :post
+   (loop [env env
+          sym sym
+          confirm confirm]
    (let [locals (:locals env)]
      (if #?(:clj  (= "js" (namespace sym))
             :cljs (identical? "js" (namespace sym)))
-       (do
-         (when (contains? locals (-> sym name symbol))
+       (let [nme (-> sym name symbol)
+             shadowed-by-local (get locals nme)]
+         (when (some? shadowed-by-local)
            (warning :js-shadowed-by-local env {:name sym}))
          (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
            (when-not (has-extern? pre)
@@ -1016,7 +1032,14 @@
               :tag  (with-meta (or (js-tag pre) (:tag (meta sym)) 'js) {:prefix pre})}
              (when-let [ret-tag (js-tag pre :ret-tag)]
                {:js-fn-var true
-                :ret-tag ret-tag}))))
+                :ret-tag ret-tag})
+             (if (some? shadowed-by-local)
+               (assoc shadowed-by-local
+                      :op :local
+                      :form sym
+                      :env env)
+               {:op :js-var
+                :form sym}))))
        (let [s  (str sym)
              lb (get locals sym)
              current-ns (-> env :ns :name)]
@@ -1033,6 +1056,7 @@
                            (or (and (js-module-exists? ns)
                                     (get-in @env/*compiler* [:js-module-index ns]))
                              (symbol ns)))]
+             (assert (symbol? full-ns))
              (when (some? confirm)
                (when (not= current-ns full-ns)
                  (confirm-ns env full-ns))
@@ -1044,16 +1068,22 @@
                  prefix (symbol (subs s 0 idx))
                  suffix (subs s (inc idx))]
              (if-some [lb (get locals prefix)]
-               {:name (symbol (str (:name lb)) suffix)}
+               {:name (symbol (str (:name lb)) suffix)
+                ;; FIXME is this really a local? -Ambrose
+                :op :local}
                (if-some [full-ns (gets @env/*compiler* ::namespaces current-ns :imports prefix)]
-                 {:name (symbol (str full-ns) suffix)}
+                 {:name (symbol (str full-ns) suffix)
+                  :ns full-ns
+                  :op :js-var}
                  (if-some [info (gets @env/*compiler* ::namespaces current-ns :defs prefix)]
                    (merge info
                      {:name (symbol (str current-ns) (str sym))
-                      :ns current-ns})
+                      :ns current-ns
+                      :op :var})
                    (merge (gets @env/*compiler* ::namespaces prefix :defs (symbol suffix))
                      {:name (if (= "" prefix) (symbol suffix) (symbol (str prefix) suffix))
-                      :ns prefix})))))
+                      :ns prefix
+                      :op :var})))))
 
            (some? (gets @env/*compiler* ::namespaces current-ns :uses sym))
            (let [full-ns (gets @env/*compiler* ::namespaces current-ns :uses sym)]
@@ -1093,7 +1123,8 @@
                (confirm env current-ns sym))
              (merge (gets @env/*compiler* ::namespaces current-ns :defs sym)
                {:name (symbol (str current-ns) (str sym))
-                :ns current-ns}))))))))
+                :ns current-ns
+                :op :var})))))))))
 
 (defn resolve-existing-var
   "Given env, an analysis environment, and sym, a symbol, resolve an existing var.
@@ -1174,7 +1205,7 @@
 (defn analyze-keyword
   [env sym]
   (register-constant! env sym)
-  {:op :constant :env env :form sym :tag 'cljs.core/Keyword})
+  {:op :const :env env :val sym :form sym :tag 'cljs.core/Keyword})
 
 (defn get-tag [e]
   (if-some [tag (-> e :tag)]
@@ -1215,12 +1246,12 @@
 (def BOOLEAN_OR_SEQ '#{boolean seq})
 
 (defn infer-if [env e]
-  (let [{{:keys [op form]} :test} e
+  (let [{{:keys [op val]} :test} e
         then-tag (infer-tag env (:then e))]
-    (if (and #?(:clj (= op :constant)
-                :cljs (keyword-identical? op :constant))
-             (not (nil? form))
-             (not (false? form)))
+    (if (and #?(:clj (= op :const)
+                :cljs (keyword-identical? op :const))
+             (not (nil? val))
+             (not (false? val)))
       then-tag
       (let [else-tag (infer-tag env (:else e))]
         (cond
@@ -1254,7 +1285,7 @@
                         (when (= 'js (:ns info)) 'js))]
       ret-tag
       (let [args (:args e)
-            me (assoc (find-matching-method f args) :op :method)]
+            me (assoc (find-matching-method f args) :op :fn-method)]
         (if-some [ret-tag (infer-tag env me)]
           ret-tag
           ANY_SYM)))))
@@ -1268,21 +1299,22 @@
       (case (:op e)
         :recur    IGNORE_SYM
         :throw    IGNORE_SYM
-        :let      (infer-tag env (:expr e))
-        :loop     (infer-tag env (:expr e))
+        (:let :loop) (infer-tag env (:body e))
         :do       (infer-tag env (:ret e))
-        :method   (infer-tag env (:expr e))
-        :def      (infer-tag env (:init e))
+        :fn-method (infer-tag env (:body e))
+        :def      (when-some [init (:init e)]
+                    (infer-tag env init))
         :invoke   (infer-invoke env e)
         :if       (infer-if env e)
-        :constant (case (:form e)
-                    true BOOLEAN_SYM
-                    false BOOLEAN_SYM
-                    ANY_SYM)
-        :var      (if-some [init (:init e)]
+        :const (case (:val e)
+                 true BOOLEAN_SYM
+                 false BOOLEAN_SYM
+                 ANY_SYM)
+        (:var :binding :local :js-var)
+                  (if-some [init (:init e)]
                     (infer-tag env init)
                     (infer-tag env (:info e)))
-        :dot      ANY_SYM
+        (:host-field :host-call)      ANY_SYM
         :js       ANY_SYM
         nil)))
 
@@ -1327,11 +1359,17 @@
 
 (defmethod parse 'var
   [op env [_ sym :as form] _ _]
-  (merge
-    {:env env
-     :op :var-special
-     :form form}
-    (var-ast env sym)))
+  (when (not= 2 (count form))
+    (throw (error env "Wrong number of args to var")))
+  (when-not (symbol? sym)
+    (throw (error env "Argument to var must be symbol")))
+  (let [var-ast (var-ast env sym)]
+    (merge
+      {:env env
+       :op :the-var
+       :form form
+       :children [:var :sym :meta]}
+      var-ast)))
 
 (defmethod parse 'if
   [op env [_ test then else :as form] name _]
@@ -1345,34 +1383,55 @@
     {:env env :op :if :form form
      :test test-expr :then then-expr :else else-expr
      :unchecked *unchecked-if*
-     :children [test-expr then-expr else-expr]}))
+     :children [:test :then :else]}))
 
 (defmethod parse 'case*
-  [op env [_ sym tests thens default :as form] name _]
-  (assert (symbol? sym) "case* must switch on symbol")
+  [op env [_ test tests thens default :as form] name _]
+  (assert (symbol? test) "case* must switch on symbol")
   (assert (every? vector? tests) "case* tests must be grouped in vectors")
   (let [expr-env (assoc env :context :expr)
-        v        (disallowing-recur (analyze expr-env sym))
-        tests    (mapv #(mapv (fn [t] (analyze expr-env t)) %) tests)
-        thens    (mapv #(analyze env %) thens)
+        test     (disallowing-recur (analyze expr-env test))
+        tests    (map #(mapv (fn [t]
+                               (let [env expr-env]
+                                 {:op :case-test 
+                                  :test (analyze env t)
+                                  :children [:test]
+                                  :env env}))
+                             %)
+                      tests)
+        thens    (map #(let [env env]
+                         {:op :case-then
+                          :then (analyze env %)
+                          :children [:then]
+                          :env env})
+                      thens)
+        nodes    (mapv (fn [tests then]
+                         {:pre [(vector? tests)]}
+                         ; no :form, this is a synthetic grouping node
+                         {:op :case-node
+                          :env env ;; just use original env - Ambrose
+                          :tests tests
+                          :then then
+                          :children [:tests :then]})
+                       tests thens)
         default  (analyze env default)]
     (assert (every? (fn [t]
                       (or
                         (-> t :info :const)
-                        (and (= :constant (:op t))
-                             ((some-fn number? string? char?) (:form t)))))
-              (apply concat tests))
+                        (and (= :const (:op t))
+                             ((some-fn number? string? char?) (:val t)))))
+              (apply concat (map (comp #(map :test %) :tests) nodes)))
       "case* tests must be numbers, strings, or constants")
-    {:env env :op :case* :form form
-     :v v :tests tests :thens thens :default default
-     :children (vec (concat [v] tests thens (if default [default])))}))
+    {:env env :op :case :form form
+     :test test :nodes nodes :default default
+     :children [:test :nodes :default]}))
 
 (defmethod parse 'throw
-  [op env [_ throw :as form] name _]
-  (let [throw-expr (disallowing-recur (analyze (assoc env :context :expr) throw))]
+  [op env [_ exception :as form] name _]
+  (let [exception-expr (disallowing-recur (analyze (assoc env :context :expr) exception))]
     {:env env :op :throw :form form
-     :throw throw-expr
-     :children [throw-expr]}))
+     :exception exception-expr
+     :children [:exception]}))
 
 (defmethod parse 'try
   [op env [_ & body :as form] name _]
@@ -1401,8 +1460,8 @@
                 :done (throw (error env "Unexpected form after finally"))))
             parser))
 
-        finally (when (seq fblock)
-                  (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
+        finally-expr (when (seq fblock)
+                       (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
         e (when (or (seq cblocks) dblock) (gensym "e"))
         default (if-let [[_ _ name & cb] dblock]
                   `(cljs.core/let [~name ~e] ~@cb)
@@ -1424,16 +1483,24 @@
                          :line (get-line e env)
                          :column (get-col e env)})
                  locals)
-        catch (when cblock
-                (analyze (assoc catchenv :locals locals) cblock))
-        try (analyze (if (or e finally) catchenv env) `(do ~@body))]
+        catch-expr (when cblock
+                     (analyze (assoc catchenv :locals locals) cblock))
+        body-expr (analyze (if (or e finally-expr) catchenv env) `(do ~@body))]
 
-    {:env env :op :try :form form
-     :try try
-     :finally finally
-     :name e
-     :catch catch
-     :children [try catch finally]}))
+    (merge
+      {:env env :op :try :form form
+       :body body-expr
+       :children (vec
+                   (concat [:body]
+                           (when e
+                             [:catch])
+                           (when finally-expr
+                             [:finally])))}
+      (when e
+        {:catch catch-expr
+         :name e})
+      (when finally-expr
+        {:finally finally-expr}))))
 
 (defn valid-proto [x]
   (when (symbol? x) x))
@@ -1510,10 +1577,12 @@
                   (update-in env [:ns :excludes] conj-to-set sym))
                 env)
           var-name (:name (resolve-var (dissoc env :locals) sym))
+          var-ns (some-> var-name namespace symbol)
           init-expr (when (contains? args :init)
                       (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
                         (merge
-                          {:name var-name}
+                          {:ns var-ns
+                           :name var-name}
                           sym-meta
                           (when (true? dynamic) {:dynamic true})
                           (source-info var-name env)))
@@ -1540,7 +1609,8 @@
 
         (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
           (merge
-            {:name var-name}
+            {:name var-name
+             :ns var-ns}
             ;; remove actual test metadata, as it includes non-valid EDN and
             ;; cannot be present in analysis cached to disk - David
             (cond-> sym-meta
@@ -1586,33 +1656,53 @@
                      :arglists-meta (doall (map meta (:arglists sym-meta)))}))))
             (if (and fn-var? (some? tag))
               {:ret-tag tag}
-              (when tag {:tag tag})))))
-      (merge
-        {:env env
-         :op :def
-         :form form
-         :name var-name
-         :var (assoc
-                (analyze
-                  (-> env (dissoc :locals)
-                    (assoc :context :expr)
-                    (assoc :def-var true))
-                  sym)
-                :op :var)
-         :doc doc
-         :jsdoc (:jsdoc sym-meta)
-         :init init-expr}
-        (when (true? (:def-emits-var env))
-          {:var-ast (var-ast env sym)})
-        (when-some [test (:test sym-meta)]
-          {:test (analyze (assoc env :context :expr) test)})
-        (when (some? tag)
-          (if fn-var?
-            {:ret-tag tag}
-            {:tag tag}))
-        (when (true? dynamic) {:dynamic true})
-        (when (some? export-as) {:export export-as})
-        (when (some? init-expr) {:children [init-expr]})))))
+              (when tag {:tag tag}))
+            {:op :var})))
+      (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
+        (merge
+          {:name var-name
+           :ns var-ns}
+          ;; remove actual test metadata, as it includes non-valid EDN and
+          ;; cannot be present in analysis cached to disk - David
+          (cond-> sym-meta
+            (:test sym-meta) (assoc :test true))
+          {:meta (-> sym-meta
+                   (dissoc :test)
+                   (update-in [:file]
+                     (fn [f]
+                       (if (= (-> env :ns :name) 'cljs.core)
+                         "cljs/core.cljs"
+                         f))))}
+          (when doc {:doc doc})
+          (when (true? dynamic) {:dynamic true})
+          (source-info var-name env)
+          ;; the protocol a protocol fn belongs to
+          (when protocol
+            {:protocol protocol})
+          ;; symbol for reified protocol
+          (when-let [protocol-symbol (-> sym meta :protocol-symbol)]
+            {:protocol-symbol protocol-symbol
+             :info (-> protocol-symbol meta :protocol-info)
+             :impls #{}})
+          (when fn-var?
+            ;; FIXME should params be a vector? - Ambrose
+            (let [params (map #(vec (map :name (:params %))) (:methods init-expr))]
+              (merge
+                {:fn-var true
+                 ;; protocol implementation context
+                 :protocol-impl (:protocol-impl init-expr)
+                 ;; inline protocol implementation context
+                 :protocol-inline (:protocol-inline init-expr)}
+                (if-some [top-fn-meta (:top-fn sym-meta)]
+                  top-fn-meta
+                  {:variadic (:variadic init-expr)
+                   :max-fixed-arity (:max-fixed-arity init-expr)
+                   :method-params params
+                   :arglists (:arglists sym-meta)
+                   :arglists-meta (doall (map meta (:arglists sym-meta)))}))) )
+          (when (and fn-var? (some? tag))
+            {:ret-tag tag})
+          {:op :var})))))
 
 (defn analyze-fn-method-param [env]
   (fn [[locals params] name]
@@ -1626,7 +1716,8 @@
                    (locals name))
           env    (merge (select-keys env [:context])
                    {:line line :column column})
-          param  {:op :var
+          param  {:op :binding
+                  :local :arg
                   :name name
                   :line line
                   :column column
@@ -1636,8 +1727,7 @@
                   ;; as a :var, so it gets routed
                   ;; correctly in the compiler
                   :env env
-                  :info {:name name :shadow shadow}
-                  :binding-form? true}]
+                  :info {:name name :shadow shadow}}]
      [(assoc locals name param) (conj params param)])))
 
 (defn analyze-fn-method-body [env form recur-frames]
@@ -1665,14 +1755,16 @@
         expr            (when analyze-body?
                           (analyze-fn-method-body body-env body-form recur-frames))
         recurs          @(:flag recur-frame)]
-    {:env env
+    {:op :fn-method
+     :env env
      :variadic variadic
      :params params
      :max-fixed-arity fixed-arity
      :type type
      :form form
-     :expr expr
-     :recurs recurs}))
+     :body expr
+     :recurs recurs
+     :children [:params :body]}))
 
 (declare analyze-wrap-meta)
 
@@ -1683,7 +1775,13 @@
           shadow   (when (nil? shadow)
                      (get-in env [:js-globals name]))
           fn-scope (:fn-scope env)
-          name-var {:name name
+          name-var {:op :local
+                    :name name
+                    :local :fn
+                    :fn-self-name true
+                    :fn-scope fn-scope
+                    ;:ns ns
+                    :shadow shadow
                     :info {:fn-self-name true
                            :fn-scope fn-scope
                            :ns ns
@@ -1694,9 +1792,10 @@
       (merge name-var ret-tag))))
 
 (defn analyze-fn-methods-pass2* [menv locals type meths]
-  (doall (map #(analyze-fn-method menv locals % type true) meths)))
+  (mapv #(analyze-fn-method menv locals % type true) meths))
 
 (defn analyze-fn-methods-pass2 [menv locals type meths]
+  {:post [(vector? %)]}
   (analyze-fn-methods-pass2* menv locals type meths))
 
 (defmethod parse 'fn*
@@ -1733,6 +1832,7 @@
         variadic     (boolean (some :variadic methods))
         locals       (if named-fn?
                        (update-in locals [name] assoc
+                         :local :fn
                          ;; TODO: can we simplify? - David
                          :fn-var true
                          :variadic variadic
@@ -1743,25 +1843,29 @@
                        ;; a second pass with knowledge of our function-ness/arity
                        ;; lets us optimize self calls
                        (disallowing-ns* (analyze-fn-methods-pass2 menv locals type meths))
-                       methods)
+                       (vec methods))
+        _ (assert (vector? methods))
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
-        children     (mapv :expr methods)
-        ast          {:op :fn
-                      :env env
-                      :form form
-                      :name name-var
-                      :methods methods
-                      :variadic variadic
-                      :tag 'function
-                      :recur-frames *recur-frames*
-                      :loop-lets *loop-lets*
-                      :jsdoc [js-doc]
-                      :max-fixed-arity mfa
-                      :protocol-impl proto-impl
-                      :protocol-inline proto-inline
-                      :children children}]
+        ast          (merge
+                       {:op :fn
+                        :env env
+                        :form form
+                        :methods methods
+                        :variadic variadic
+                        :tag 'function
+                        :recur-frames *recur-frames*
+                        :loop-lets *loop-lets*
+                        :jsdoc [js-doc]
+                        :max-fixed-arity mfa
+                        :protocol-impl proto-impl
+                        :protocol-inline proto-inline}
+                       (when name-var
+                         {:local name-var})
+                       (cond
+                         name-var {:children [:local :methods]}
+                         :else {:children [:methods]}))]
     (let [variadic-methods (filter :variadic methods)
           variadic-params  (count (:params (first variadic-methods)))
           param-counts     (map (comp count :params) methods)]
@@ -1790,7 +1894,7 @@
                               :fn-var true
                               :line (get-line n env)
                               :column (get-col n env)
-                              :local true
+                              :local :letfn
                               :shadow (locals n)
                               :variadic (:variadic fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
@@ -1806,6 +1910,8 @@
                   (let [env (assoc-in meth-env [:locals name] shadow)
                         fexpr (analyze env (n->fexpr name))
                         be' (assoc be
+                              :op :binding
+                              :local :letfn
                               :init fexpr
                               :variadic (:variadic fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
@@ -1814,31 +1920,35 @@
                      (conj bes be')]))
           [meth-env []] bes)
         expr (analyze (assoc meth-env :context (if (= :expr context) :return context)) `(do ~@exprs))]
-    {:env env :op :letfn :bindings bes :expr expr :form form
-     :children (conj (vec (map :init bes)) expr)}))
+    (assert (vector? bes))
+    {:env env :op :letfn :bindings bes :body expr :form form
+     :children [:bindings :body]}))
 
 (defn analyze-do-statements* [env exprs]
-  (seq (doall (map #(analyze (assoc env :context :statement) %) (butlast exprs)))))
+  {:pre [(vector? exprs)
+         (<= 1 (count exprs))]}
+  (mapv #(analyze (assoc env :context :statement) %) (pop exprs)))
 
 (defn analyze-do-statements [env exprs]
+  {:post [(vector? %)]}
   (disallowing-recur (analyze-do-statements* env exprs)))
 
 (defmethod parse 'do
   [op env [_ & exprs :as form] _ _]
-  (let [statements (analyze-do-statements env exprs)]
+  (let [exprs (vec exprs)
+        children [:statements :ret]]
     (if (<= (count exprs) 1)
-      (let [ret      (analyze env (first exprs))
-            children (conj (vec statements) ret)]
+      (let [ret (analyze env (nth exprs 0 nil))] ;; (do) is (do nil)
         {:op :do
          :env env
          :form form
-         :statements statements :ret ret
+         :statements [] :ret ret
          :children children})
-      (let [ret-env  (if (= :statement (:context env))
+      (let [statements (analyze-do-statements env exprs)
+            ret-env  (if (= :statement (:context env))
                        (assoc env :context :statement)
                        (assoc env :context :return))
-            ret      (analyze ret-env (last exprs))
-            children (conj (vec statements) ret)]
+            ret      (analyze ret-env (peek exprs))]
         {:op :do
          :env env
          :form form
@@ -1857,7 +1967,7 @@
           tag
           (-> init-expr :info :tag))))
 
-(defn analyze-let-bindings* [encl-env bindings]
+(defn analyze-let-bindings* [encl-env bindings op]
   (loop [bes []
          env (assoc encl-env :context :expr)
          bindings (seq (partition 2 bindings))]
@@ -1872,19 +1982,17 @@
                 line (get-line name env)
                 col (get-col name env)
                 be {:name name
+                    :form name
                     :line line
                     :column col
                     :init init-expr
                     :tag (get-let-tag name init-expr)
-                    :local true
+                    :local op
                     :shadow (-> env :locals name)
-                    ;; Give let* bindings same shape as var so
-                    ;; they get routed correctly in the compiler
-                    :op :var
+                    :op :binding
                     :env {:line line :column col}
                     :info {:name name
-                           :shadow (-> env :locals name)}
-                    :binding-form? true}
+                           :shadow (-> env :locals name)}}
                 be (if (= :fn (:op init-expr))
                      ;; TODO: can we simplify - David
                      (merge be
@@ -1898,8 +2006,8 @@
               (next bindings))))
         [bes env])))
 
-(defn analyze-let-bindings [encl-env bindings]
-  (disallowing-recur (analyze-let-bindings* encl-env bindings)))
+(defn analyze-let-bindings [encl-env bindings op]
+  (disallowing-recur (analyze-let-bindings* encl-env bindings op)))
 
 (defn analyze-let-body* [env context exprs]
   (analyze (assoc env :context (if (= :expr context) :return context)) `(do ~@exprs)))
@@ -1910,36 +2018,37 @@
     (analyze-let-body* env context exprs)))
 
 (defn analyze-let
-  [encl-env [_ bindings & exprs :as form] is-loop]
+  [encl-env [_ bindings & exprs :as form] op]
+  {:pre [(or (= :let op)
+             (= :loop op))]}
   (when-not (and (vector? bindings) (even? (count bindings)))
     (throw (error encl-env "bindings must be vector of even number of elements")))
   (let [context      (:context encl-env)
-        [bes env]    (analyze-let-bindings encl-env bindings)
-        recur-frame  (when (true? is-loop)
+        [bes env]    (analyze-let-bindings encl-env bindings op)
+        recur-frame  (when (= :loop op)
                        {:params bes :flag (atom nil)})
         recur-frames (if recur-frame
                        (cons recur-frame *recur-frames*)
                        *recur-frames*)
         loop-lets    (cond
-                       (true? is-loop) *loop-lets*
+                       (= :loop op) *loop-lets*
                        (some? *loop-lets*) (cons {:params bes} *loop-lets*))
         expr         (analyze-let-body env context exprs recur-frames loop-lets)
-        op           (if (true? is-loop) :loop :let)
         children     (conj (vec (map :init bes)) expr)]
     {:op op
      :env encl-env
      :bindings bes
-     :expr expr
+     :body expr
      :form form
-     :children children}))
+     :children [:bindings :body]}))
 
 (defmethod parse 'let*
   [op encl-env form _ _]
-  (analyze-let encl-env form false))
+  (analyze-let encl-env form :let))
 
 (defmethod parse 'loop*
   [op encl-env form _ _]
-  (analyze-let encl-env form true))
+  (analyze-let encl-env form :loop))
 
 (defmethod parse 'recur
   [op env [_ & exprs :as form] _ _]
@@ -1949,7 +2058,7 @@
         add-implicit-target-object? (and (:protocol-impl frame)
                                          (= (count exprs) (dec (count (:params frame)))))
         exprs (cond->> exprs add-implicit-target-object? (cons nil))
-        exprs (disallowing-recur (vec (map #(analyze (assoc env :context :expr) %) exprs)))]
+        exprs (disallowing-recur (mapv #(analyze (assoc env :context :expr) %) exprs))]
     (when-not frame
       (throw (error env "Can't recur here")))
     (when-not (= (count exprs) (count (:params frame)))
@@ -1961,11 +2070,17 @@
     (assoc {:env env :op :recur :form form}
       :frame frame
       :exprs exprs
-      :children exprs)))
+      :children [:exprs])))
 
 (defmethod parse 'quote
-  [_ env [_ x] _ _]
-  (analyze (assoc env :quoted? true) x))
+  [_ env [_ & [x & more :as args] :as form] _ _]
+  (when (or more (not args))
+    (throw (error env "Wrong number of args to quote")))
+  {:op :quote
+   :expr (analyze (assoc env :quoted? true) x)
+   :env env
+   :form form
+   :children [:expr]})
 
 (defmethod parse 'new
   [_ env [_ ctor & args :as form] _ _]
@@ -1977,14 +2092,14 @@
          record-args
          (when (and (:record ctor-var) (not (-> ctor meta :internal-ctor)))
            (repeat 3 (analyze enve nil)))
-         argexprs (into (vec (map #(analyze enve %) args)) record-args)
+         argexprs (into (mapv #(analyze enve %) args) record-args)
          known-num-fields (:num-fields ctor-var)
          argc (count args)]
      (when (and (not (-> ctor meta :internal-ctor))
                 (some? known-num-fields) (not= known-num-fields argc))
        (warning :fn-arity env {:argc argc :ctor ctor}))
      {:env env :op :new :form form :ctor ctorexpr :args argexprs
-      :children (into [ctorexpr] argexprs)
+      :children [:ctor :args]
       :tag (let [name (-> ctorexpr :info :name)]
              (or ('{js/Object object
                     js/String string
@@ -2047,7 +2162,7 @@
 
         :else
         {:env env :op :set! :form form :target targetexpr :val valexpr
-         :children [targetexpr valexpr]})))))
+         :children [:target :val]})))))
 
 #?(:clj (declare analyze-file))
 
@@ -2764,16 +2879,18 @@
   (let [t (:name (resolve-var (dissoc env :locals) tsym))
         locals (reduce (fn [m fld]
                          (assoc m fld
-                                {:name fld
+                                {:op :local
+                                 :name fld
                                  :line (get-line fld env)
                                  :column (get-col fld env)
+                                 :local :field
                                  :field true
                                  :mutable (-> fld meta :mutable)
                                  :unsynchronized-mutable (-> fld meta :unsynchronized-mutable)
                                  :volatile-mutable (-> fld meta :volatile-mutable)
                                  :tag (-> fld meta :tag)
                                  :shadow (m fld)}))
-                       {} (if (= :defrecord* op)
+                       {} (if (= :defrecord op)
                             (concat fields '[__meta __extmap ^:mutable __hash])
                             fields))
         protocols (-> tsym meta :protocols)]
@@ -2783,22 +2900,23 @@
                        :name t
                        :type true
                        :num-fields (count fields)
-                       :record (= :defrecord* op))]
+                       :record (= :defrecord op))]
                (merge m
                       (dissoc (meta tsym) :protocols)
                       {:protocols protocols}
                       (source-info tsym env)))))
     {:op op :env env :form form :t t :fields fields :pmasks pmasks
      :protocols (disj protocols 'cljs.core/Object)
-     :body (analyze (assoc env :locals locals) body)}))
+     :body (analyze (assoc env :locals locals) body)
+     :children [:body]}))
 
 (defmethod parse 'deftype*
   [_ env form _ _]
-  (parse-type :deftype* env form))
+  (parse-type :deftype env form))
 
 (defmethod parse 'defrecord*
   [_ env form _ _]
-  (parse-type :defrecord* env form) )
+  (parse-type :defrecord env form) )
 
 ;; dot accessor code
 
@@ -2904,25 +3022,24 @@
           (swap! env/*compiler* update-in
             (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))))
     (case dot-action
-      ::access (let [children [targetexpr]]
-                 {:op :dot
+      ::access (let []
+                 {:op :host-field
                   :env env
                   :form form
                   :target targetexpr
                   :field field
-                  :children children
+                  :children [:target]
                   :tag (if (js-tag? tag)
                          (or (js-tag (-> tag meta :prefix) :tag) tag)
                          tag)})
-      ::call   (let [argexprs (map #(analyze enve %) args)
-                     children (into [targetexpr] argexprs)]
-                 {:op :dot
+      ::call   (let [argexprs (mapv #(analyze enve %) args)]
+                 {:op :host-call
                   :env env
                   :form form
                   :target targetexpr
                   :method method
                   :args argexprs
-                  :children children
+                  :children [:target :args]
                   :tag (if (js-tag? tag)
                          (or (js-tag (-> tag meta :prefix) :ret-tag) 'js)
                          tag)}))))
@@ -3007,7 +3124,7 @@
 
 (defn analyze-js-star* [env jsform args form]
   (let [enve      (assoc env :context :expr)
-        argexprs  (vec (map #(analyze enve %) args))
+        argexprs  (mapv #(analyze enve %) args)
         form-meta (meta form)
         segs      (js-star-seg jsform)
         tag       (get-js-tag form)
@@ -3030,7 +3147,7 @@
      :args argexprs
      :tag tag
      :form form
-     :children argexprs
+     :children [:args]
      :js-op js-op
      :numeric numeric}))
 
@@ -3132,9 +3249,9 @@
              (~(analyzed (if bind-f-expr? f-sym f))
                ~@(if bind-args? arg-syms args)))))
       (let [ana-expr #(analyze enve %)
-            argexprs (map ana-expr args)]
-        {:env env :op :invoke :form form :f fexpr :args (vec argexprs)
-         :children (into [fexpr] argexprs)}))))
+            argexprs (mapv ana-expr args)]
+        {:env env :op :invoke :form form :fn fexpr :args argexprs
+         :children [:fn :args]}))))
 
 (defn parse-invoke
   [env form]
@@ -3146,7 +3263,7 @@
   (if ^boolean (:quoted? env)
     (do
       (register-constant! env sym)
-      (analyze-wrap-meta {:op :constant :env env :form sym :tag 'cljs.core/Symbol}))
+      (analyze-wrap-meta {:op :const :env env :val sym :form sym :tag 'cljs.core/Symbol}))
     (let [{:keys [line column]} (meta sym)
           env  (if-not (nil? line)
                  (assoc env :line line)
@@ -3157,7 +3274,7 @@
           ret  {:env env :form sym}
           lcls (:locals env)]
       (if-some [lb (get lcls sym)]
-        (assoc ret :op :var :info lb)
+        (assoc ret :op :local :info lb)
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
               cur-ns (str (-> env :ns :name))
@@ -3176,11 +3293,13 @@
                          (resolve-var env sym))]
           (if-not (true? (:def-var env))
             (merge
+              ;; FIXME is this actually a :var? - Ambrose
               (assoc ret :op :var :info info)
               (when-let [const-expr (:const-expr info)]
                 {:const-expr const-expr}))
             (let [info (resolve-var env sym)]
-              (assoc ret :op :var :info info))))))))
+              (assoc (merge info ret)
+                     :info info))))))))
 
 (defn excluded?
   #?(:cljs {:tag boolean})
@@ -3353,46 +3472,58 @@
 (defn analyze-map
   [env form]
   (let [expr-env (assoc env :context :expr)
-        ks (disallowing-recur (vec (map #(analyze expr-env %) (keys form))))
-        vs (disallowing-recur (vec (map #(analyze expr-env %) (vals form))))]
+        ks (disallowing-recur (mapv #(analyze expr-env %) (keys form)))
+        vs (disallowing-recur (mapv #(analyze expr-env %) (vals form)))]
     (analyze-wrap-meta {:op :map :env env :form form
                         :keys ks :vals vs
-                        :children (vec (interleave ks vs))
+                        :children [:keys :vals]
                         :tag 'cljs.core/IMap})))
 
 (defn analyze-list
   [env form]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (doall (map #(analyze expr-env %) form)))]
-    (analyze-wrap-meta {:op :list :env env :form form :items items :children items :tag 'cljs.core/IList})))
+        items (disallowing-recur (mapv #(analyze expr-env %) form))]
+    (analyze-wrap-meta {:op :list :env env :form form :items items 
+                        :children [:items] :tag 'cljs.core/IList})))
 
 (defn analyze-vector
   [env form]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
-    (analyze-wrap-meta {:op :vector :env env :form form :items items :children items :tag 'cljs.core/IVector})))
+        items (disallowing-recur (mapv #(analyze expr-env %) form))]
+    (analyze-wrap-meta {:op :vector :env env :form form :items items 
+                        :children [:items] :tag 'cljs.core/IVector})))
 
 (defn analyze-set
-  [env form ]
+  [env form]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
-    (analyze-wrap-meta {:op :set :env env :form form :items items :children items :tag 'cljs.core/ISet})))
+        items (disallowing-recur (mapv #(analyze expr-env %) form))]
+    (analyze-wrap-meta {:op :set :env env :form form :items items 
+                        :children [:items] :tag 'cljs.core/ISet})))
 
 (defn analyze-js-value
   [env ^JSValue form]
   (let [val (.-val form)
-        expr-env (assoc env :context :expr)
-        items (if (map? val)
-                (zipmap (keys val)
-                        (disallowing-recur (doall (map #(analyze expr-env %) (vals val)))))
-                (disallowing-recur (doall (map #(analyze expr-env %) val))))]
-    {:op :js-value
-     :js-type (if (map? val) :object :array)
-     :env env
-     :form form
-     :items items
-     :children items
-     :tag (if (map? val) 'object 'array)}))
+        expr-env (assoc env :context :expr)]
+    (if (map? val)
+      (let [keys (disallowing-recur
+                   (vec (keys val)))
+            vals (disallowing-recur
+                   (mapv #(analyze expr-env %) (vals val)))]
+        {:op :js-object
+         :env env
+         :form form
+         :keys keys
+         :vals vals
+         :children [#_:keys :vals]
+         :tag 'object})
+      (let [items (disallowing-recur
+                    (mapv #(analyze expr-env %) val))]
+        {:op :js-array
+         :env env
+         :form form
+         :items items
+         :children [:items]
+         :tag 'array}))))
 
 (defn elide-reader-meta [m]
   (dissoc m :file :line :column :end-column :end-line :source))
@@ -3407,8 +3538,8 @@
       (let [env (:env expr) ; take on expr's context ourselves
             expr (assoc-in expr [:env :context] :expr) ; change expr to :expr
             meta-expr (analyze-map (:env expr) m)]
-        {:op :meta :env env :form form
-         :meta meta-expr :expr expr :children [meta-expr expr]})
+        {:op :with-meta :env env :form form
+         :meta meta-expr :expr expr :children [:meta :expr]})
       expr)))
 
 (defn infer-type [env ast _]
@@ -3510,7 +3641,7 @@
                    (string? form) 'string
                    (true? form) 'boolean
                    (false? form) 'boolean)]
-         (cond-> {:op :constant :env env :form form}
+         (cond-> {:op :const :env env :form form :val form}
            tag (assoc :tag tag))))))
 
 #?(:cljs
@@ -3531,7 +3662,7 @@
                    (string? form) STRING_SYM
                    (true? form) BOOLEAN_SYM
                    (false? form) BOOLEAN_SYM)]
-         (cond-> {:op :constant :env env :form form}
+         (cond-> {:op :const :env env :form form :val form}
            tag (assoc :tag tag))))))
 
 (defn analyze* [env form name opts]
