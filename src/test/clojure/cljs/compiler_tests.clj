@@ -11,12 +11,18 @@
   (:require [cljs.analyzer :as ana]
             [cljs.compiler :as comp]
             [cljs.env :as env]
+            [clojure.java.io :as io]
             [cljs.util :as util]
             [cljs.tagged-literals :as tags])
   (:import [java.io File]))
 
 (def aenv (assoc-in (ana/empty-env) [:ns :name] 'cljs.user))
-(def cenv (env/default-compiler-env))
+(def ^:dynamic cenv (env/default-compiler-env))
+
+(ana/no-warn
+  (env/with-compiler-env cenv
+    (binding [ana/*analyze-deps* false]
+      (ana/analyze-file (io/file "src/main/cljs/cljs/core.cljs")))))
 
 #_(deftest should-recompile
   (let [src (File. "test/hello.cljs")
@@ -39,21 +45,21 @@
              (ana/analyze aenv
                '(defn foo []
                   (fn bar [])))
-             [:init :name]))
+             [:init :local]))
          'cljs$user$foo))
   (is (= (comp/munge
            (get-in
              (ana/analyze aenv
                '(defn foo []
                   (fn bar [])))
-             [:init :children 0 :children 0 :name]))
-          'cljs$user$foo_$_bar))
+             [:init :methods 0 :body :ret :local]))
+         'cljs$user$foo_$_bar))
   (is (= (comp/munge
            (get-in
              (ana/analyze aenv
                '(fn []
                   (fn console [])))
-             [:children 0 :children 0 :name]))
+             [:methods 0 :body :ret :local]))
          'cljs$user$console)))
 
 (deftest test-js-negative-infinity
@@ -73,7 +79,8 @@
 
 (deftest test-resolve-dotdot
   (is (= '{:name cljs.core/..
-           :ns   cljs.core}
+           :ns   cljs.core
+           :op :var}
          (ana/no-warn
            (env/with-compiler-env cenv
              (ana/resolve-var {:ns {:name 'cljs.core}} '..))))))
@@ -203,6 +210,110 @@
           '(defn incme []
              (let [incme (fn [a queue & args])]
                (println (incme 1 [1] 1 1))))))))
+  )
+
+;; CLJS-1461
+
+(defmacro em [form]
+  `(do
+     (prn
+       (env/with-compiler-env cenv
+         (comp/emit
+           (ana/analyze aenv '~form))))
+     true))
+
+#_
+(deftest compile-ast
+  (is (em (println 1)))
+  (is (em (try (println 1))))
+  (is (em (inc
+            (try (println 1)
+                 (catch :default e 1)))))
+  (is (em (println (case 1 :a 2))))
+  (is (em (println (quote a))))
+  (is (em (println (quote ^:foo a))))
+  (is (em (println (quote ^::foo a))))
+  (is (em (println +)))
+  (is (em (let [a (println 1)]
+            a)))
+  (is (em (let [a (println 1)
+                b (println 2)]
+            [a b])))
+  (is (em (print
+            ((fn [a b]
+               [a b]) 1 2))))
+  (is (em (print
+            (apply inc 1 [2]))))
+  (is (em (print
+            (conj [] 1 [2]))))
+  (is (em (print
+            (let [a 1 a 2]
+              [a]))))
+  (is (em (println js/console)))
+  (is (em (println {:a 1})))
+  (is (em 
+        (deftype A [a] Object (toString [this1232] a))))
+  (is (em 
+        (defrecord B [a] Object (toString [this] a))))
+  (is (em (prn ''{1 2})))
+  (is (em (prn ''^:foo [])))
+  (is (em (prn ''[1 2])))
+  (is (em (prn ''#{^:DFASDFADF a})))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn ''#{^:DFASDFADF a}))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^int a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^{asdfasdf :asfd} a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^{:asdfasdf asfd} a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^:file a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn ['^:file a]))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '[^:file a]))))
+  (is (em (prn '''())))
+  (is (em (print #'+)))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn 'a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn :a))))
+  (is (binding [ana/*cljs-ns* 'cljs.core
+                ana/*analyze-deps* false]
+        (em (ns foo.my.ns
+              (:require [clojure.repl]
+                        [clojure.string]
+                        [goog.string])
+              (:import [goog.string StringBuffer])))))
+  (is (binding [ana/*cljs-ns* 'cljs.user
+                cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))
+                ]
+    (em
+      (deftype StringBufferWriter [sb]
+        IWriter
+        (-write [_ s] (.append sb s))
+        (-flush [_] nil)))))
   )
 
 (comment

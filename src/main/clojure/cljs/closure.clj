@@ -744,7 +744,8 @@
 (comment
   (alter-var-root #'env/*compiler* (constantly (env/default-compiler-env)))
   ;; only get cljs deps
-  (find-cljs-dependencies ["goog.string" "cljs.core"])
+  (binding [env/*compiler* (env/default-compiler-env)]
+    (find-cljs-dependencies ["goog.string" "cljs.core"]))
   ;; get transitive deps
   (find-cljs-dependencies ["clojure.string"])
   ;; don't get cljs.core twice
