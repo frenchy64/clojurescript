@@ -619,6 +619,16 @@
                    '(let [y 1] (def y 2))))]
     (is (some? (-> parsed :expr :ret :var-ast)))))
 
+(defmacro ana [form]
+  `(e/with-compiler-env test-cenv
+     (a/analyze test-env '~form)))
+
+
+(deftest analyze-list 
+  (is (= (:op (ana 1)) :const))
+  (is (= (:op (ana '(1 2 3))) :list))
+)
+
 (comment
   (require '[cljs.compiler :as cc])
 
@@ -640,5 +650,4 @@
         (reduce util/map-merge {}
           (map (comp :externs second)
             (get @test-cenv ::a/namespaces))))))
-
   )

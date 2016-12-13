@@ -205,6 +205,15 @@
                (println (incme 1 [1] 1 1))))))))
   )
 
+;; CLJS-1461
+
+(comment
+    (env/with-compiler-env cenv
+      (comp/emit
+        (ana/analyze aenv
+          '(1 '(1 2)))))
+    )
+
 (comment
   ;; combining boolean hint w/ static fns
 

@@ -249,6 +249,14 @@
                  \/ flags)
          :cljs (emits pattern)))))
 
+(defmethod emit-constant #?(:clj clojure.lang.IPersistentList :cljs IList)
+  [items]
+  (if (empty? items)
+    (emits "cljs.core.List.EMPTY")
+    (emits "cljs.core.list(" 
+           (comma-sep (map #(with-out-str (emit-constant %)) items))
+           ")")))
+
 (defn emits-keyword [kw]
   (let [ns   (namespace kw)
         name (name kw)]
@@ -348,7 +356,7 @@
 (def ^:private array-map-threshold 8)
 
 (defn distinct-keys? [keys]
-  (and (every? #(= (:op %) :constant) keys)
+  (and (every? #(= (:op %) :const) keys)
        (= (count (into #{} keys)) (count keys))))
 
 (defmethod emit* :map
@@ -374,13 +382,6 @@
         (comma-sep vals)
         "])"))))
 
-(defmethod emit* :list
-  [{:keys [items env]}]
-  (emit-wrap env
-    (if (empty? items)
-      (emits "cljs.core.List.EMPTY")
-      (emits "cljs.core.list(" (comma-sep items) ")"))))
-
 (defmethod emit* :vector
   [{:keys [items env]}]
   (emit-wrap env
@@ -393,7 +394,7 @@
           (emits "cljs.core.PersistentVector.fromArray([" (comma-sep items) "], true)"))))))
 
 (defn distinct-constants? [items]
-  (and (every? #(= (:op %) :constant) items)
+  (and (every? #(= (:op %) :const) items)
        (= (count (into #{} items)) (count items))))
 
 (defmethod emit* :set
@@ -423,19 +424,19 @@
         (emits "})"))
       (emits "[" (comma-sep items) "]"))))
 
-(defmethod emit* :constant
+(defmethod emit* :const
   [{:keys [form env]}]
   (when-not (= :statement (:context env))
     (emit-wrap env (emit-constant form))))
 
 (defn truthy-constant? [{:keys [op form]}]
-  (and (= op :constant)
+  (and (= op :const)
        form
        (not (or (and (string? form) (= form ""))
                 (and (number? form) (zero? form))))))
 
 (defn falsey-constant? [{:keys [op form]}]
-  (and (= op :constant)
+  (and (= op :const)
        (or (false? form) (nil? form))))
 
 (defn safe-test? [env e]
@@ -863,7 +864,7 @@
         (when name
           (emits "catch (" (munge name) "){" catch "}"))
         (when finally
-          (assert (not= :constant (:op finally)) "finally block cannot contain constant")
+          (assert (not= :const (:op finally)) "finally block cannot contain constant")
           (emits "finally {" finally "}"))
         (when (= :expr context)
           (emits "})()")))
@@ -951,7 +952,7 @@
                 (or (= ns 'goog)
                     (when-let [ns-str (str ns)]
                       (= (get (string/split ns-str #"\.") 0 nil) "goog"))))
-        keyword? (and (= (-> f :op) :constant)
+        keyword? (and (= (-> f :op) :const)
                       (keyword? (-> f :form)))
         [f variadic-invoke]
         (if fn?
