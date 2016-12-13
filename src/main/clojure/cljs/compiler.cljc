@@ -74,6 +74,8 @@
 
 ; Helper fn
 (defn shadow-depth [s]
+  (assert (#{:binding :var :local} (:op s))
+          (:op s))
   (let [{:keys [name info]} s]
     (loop [d 0, {:keys [shadow]} info]
       (cond
@@ -82,7 +84,9 @@
         :else d))))
 
 (defn hash-scope [s]
-  #?(:clj (System/identityHashCode s)
+  {:pre [(#{:binding :var :local} (:op s))
+         (symbol? (:name s))]}
+  #?(:clj (hash-combine (hash (:name s)) (shadow-depth s))
      :cljs (hash-combine (-hash ^not-native (:name s))
              (shadow-depth s))))
 
@@ -185,7 +189,7 @@
               (fn [m]
                 (let [minfo (cond-> {:gcol (:gen-col m)
                                      :gline (:gen-line m)}
-                              (= (:op ast) :var)
+                              (#{:var :js-var :local} (:op ast))
                               (assoc :name (str (-> ast :info :name))))]
                   ; Dec the line/column numbers for 0-indexing.
                   ; tools.reader uses 1-indexed sources, chrome
@@ -354,7 +358,7 @@
 
 (defmethod emit* :no-op [m])
 
-(defmethod emit* :var
+(defn emit-var
   [{:keys [info env form] :as ast}]
   (if-let [const-expr (:const-expr ast)]
     (emit (assoc const-expr :env env))
@@ -364,49 +368,58 @@
                  (let [js-module-name (get-in cenv [:js-module-index (name var-name) :name])]
                    (or js-module-name (name var-name)))
                  info)]
-      ;; We need a way to write bindings out to source maps and javascript
-      ;; without getting wrapped in an emit-wrap calls, otherwise we get
-      ;; e.g. (function greet(return x, return y) {}).
-      (if (:binding-form? ast)
-        ;; Emit the arg map so shadowing is properly handled when munging
-        ;; (prevents duplicate fn-param-names)
-        (emits (munge ast))
-        (when-not (= :statement (:context env))
-          (let [reserved (cond-> js-reserved
-                           (and (es5>= (:language-out options))
-                                ;; we can skip munging things like `my.ns.default`
-                                ;; but not standalone `default` variable names
-                                ;; as they're not valid ES5 - Antonio
-                                (some? (namespace var-name)))
-                           (set/difference ana/es5-allowed))
-                js-module (get-in cenv [:js-namespaces (or (namespace var-name) (name var-name))])
-                info (cond-> info
-                       (not= form 'js/-Infinity) (munge reserved))]
-            (emit-wrap env
-              (case (:module-type js-module)
-                ;; Closure exports CJS exports through default property
-                :commonjs
-                (if (namespace var-name)
-                  (emits (munge (namespace var-name) reserved) "[\"default\"]." (munge (name var-name) reserved))
-                  (emits (munge (name var-name) reserved) "[\"default\"]"))
+      (when-not (= :statement (:context env))
+        (let [reserved (cond-> js-reserved
+                         (and (es5>= (:language-out options))
+                              ;; we can skip munging things like `my.ns.default`
+                              ;; but not standalone `default` variable names
+                              ;; as they're not valid ES5 - Antonio
+                              (some? (namespace var-name)))
+                         (set/difference ana/es5-allowed))
+              js-module (get-in cenv [:js-namespaces (or (namespace var-name) (name var-name))])
+              info (cond-> info
+                     (not= form 'js/-Infinity) (munge reserved))]
+          (emit-wrap env
+            (case (:module-type js-module)
+              ;; Closure exports CJS exports through default property
+              :commonjs
+              (if (namespace var-name)
+                (emits (munge (namespace var-name) reserved) "[\"default\"]." (munge (name var-name) reserved))
+                (emits (munge (name var-name) reserved) "[\"default\"]"))
 
-                ;; Emit bracket notation for default prop access instead of dot notation
-                :es6
-                (if (and (namespace var-name) (= "default" (name var-name)))
-                  (emits (munge (namespace var-name) reserved) "[\"default\"]")
-                  (emits info))
+              ;; Emit bracket notation for default prop access instead of dot notation
+              :es6
+              (if (and (namespace var-name) (= "default" (name var-name)))
+                (emits (munge (namespace var-name) reserved) "[\"default\"]")
+                (emits info))
 
-                (emits info)))))))))
+              (emits info))))))))
 
-(defmethod emit* :var-special
+(defmethod emit* :var [expr] (emit-var expr))
+(defmethod emit* :js-var [expr] (emit-var expr))
+(defmethod emit* :local [expr] (emit-var expr))
+(defmethod emit* :binding [{:keys [info env form] :as ast}]
+  (if-let [const-expr (:const-expr ast)]
+    (emit (assoc const-expr :env env))
+    ; We need a way to write bindings out to source maps and javascript
+    ; without getting wrapped in an emit-wrap calls, otherwise we get
+    ; e.g. (function greet(return x, return y) {}).
+
+    ; Emit the ast map so shadowing is properly handled when munging
+    ; (prevents duplicate fn-param-names)
+    (emits (munge ast))))
+
+(defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
-  {:pre [(ana/ast? sym) (ana/ast? meta)]}
-  (let [{:keys [name]} (:info var)]
+  {:pre [(ana/ast? var)
+         (ana/ast? sym) 
+         (ana/ast? meta)]}
+  (let [name (symbol (str (:ns var)) (str (:name var)))]
     (emit-wrap env
       (emits "new cljs.core.Var(function(){return " (munge name) ";},"
         sym "," meta ")"))))
 
-(defmethod emit* :meta
+(defmethod emit* :with-meta
   [{:keys [expr meta env]}]
   (emit-wrap env
     (emits "cljs.core.with_meta(" expr "," meta ")")))
@@ -475,29 +488,40 @@
 
       :else (emits "cljs.core.PersistentHashSet.createAsIfByAssoc([" (comma-sep items) "])"))))
 
-(defmethod emit* :js-value
-  [{:keys [items js-type env]}]
+(defmethod emit* :js-array
+  [{:keys [items env]}]
   (emit-wrap env
-    (if (= js-type :object)
+    (emits "[" (comma-sep items) "]")))
+
+(defmethod emit* :js-object
+  [{:keys [keys vals js-type env]}]
+  (let [items (map vector keys vals)]
+    (emit-wrap env
       (do
         (emits "({")
         (when-let [items (seq items)]
           (let [[[k v] & r] items]
+            (assert (ana/ast? v))
             (emits "\"" (name k) "\": " v)
             (doseq [[k v] r]
+              (assert (ana/ast? v))
               (emits ", \"" (name k) "\": " v))))
-        (emits "})"))
-      (emits "[" (comma-sep items) "]"))))
+        (emits "})")))))
 
 (defmethod emit* :record-value
   [{:keys [items ns name items env]}]
   (emit-wrap env
     (emits ns ".map__GT_" name "(" items ")")))
 
+(defmethod emit* :quote
+  [{:keys [expr]}]
+  {:pre [(ana/ast? expr)]}
+  (emit expr))
+
 (defmethod emit* :const
-  [{:keys [form env]}]
+  [{:keys [val env]}]
   (when-not (= :statement (:context env))
-    (emit-wrap env (emit-constant form))))
+    (emit-wrap env (emit-constant val))))
 
 (defn truthy-constant? [{:keys [op form const-expr]}]
   (or (and (= op :const)
@@ -534,21 +558,40 @@
           (emitln then "} else {")
           (emitln else "}"))))))
 
-(defmethod emit* :case*
-  [{:keys [v tests thens default env]}]
+(defmethod emit* :case-test
+  [{:keys [test]}]
+  {:pre [(ana/ast? test)]}
+  (emitln "case " test ":"))
+
+(defmethod emit* :case-then
+  [{:keys [then env ::case-gs]}]
+  {:pre [(ana/ast? then)
+         (map? env)
+         (symbol? case-gs)]}
+  (if (= :expr (:context env))
+    (emitln case-gs "=" then)
+    (emitln then)))
+
+(defmethod emit* :case-node
+  [{:keys [tests then env]}]
+  {:pre [(vector? tests)
+         (ana/ast? then)
+         (map? env)]}
+  (run! emit tests)
+  (emit then)
+  (emitln "break;"))
+
+(defmethod emit* :case
+  [{:keys [test nodes default env]}]
+  {:pre [(vector? nodes)]}
   (when (= (:context env) :expr)
     (emitln "(function(){"))
   (let [gs (gensym "caseval__")]
     (when (= :expr (:context env))
       (emitln "var " gs ";"))
-    (emitln "switch (" v ") {")
-    (doseq [[ts then] (partition 2 (interleave tests thens))]
-      (doseq [test ts]
-        (emitln "case " test ":"))
-      (if (= :expr (:context env))
-        (emitln gs "=" then)
-        (emitln then))
-      (emitln "break;"))
+    (emitln "switch (" test ") {")
+    (run! emit (->> nodes
+                    (map #(assoc-in % [:then ::case-gs] gs))))
     (when default
       (emitln "default:")
       (if (= :expr (:context env))
@@ -559,10 +602,12 @@
       (emitln "return " gs ";})()"))))
 
 (defmethod emit* :throw
-  [{:keys [throw env]}]
+  [{:keys [exception env]}]
+  {:pre [(ana/ast? exception)
+         (map? env)]}
   (if (= :expr (:context env))
-    (emits "(function(){throw " throw "})()")
-    (emitln "throw " throw ";")))
+    (emits "(function(){throw " exception "})()")
+    (emitln "throw " exception ";")))
 
 (def base-types
   #{"null" "*" "...*"
@@ -686,7 +731,7 @@
              (pr-str define))))))
 
 (defmethod emit* :def
-  [{:keys [name var init env doc jsdoc export test var-ast]}]
+  [{:keys [name var init env doc jsdoc export test the-var]}]
   ;; We only want to emit if an init is supplied, this is to avoid dead code
   ;; elimination issues. The REPL is the exception to this rule.
   (when (or init (:def-emits-var env))
@@ -704,10 +749,7 @@
            init)))
      (when (:def-emits-var env)
        (emitln "; return (")
-       (emits (merge
-                {:op  :var-special
-                 :env (assoc env :context :expr)}
-                var-ast))
+       (emits (assoc the-var :env (assoc env :context :expr)))
        (emitln ");})()"))
      (when (= :return (:context env))
          (emitln ")"))
@@ -723,9 +765,9 @@
        (emitln var ".cljs$lang$test = " test ";")))))
 
 (defn emit-apply-to
-  [{:keys [name params env]}]
+  [{:keys [local params env]}]
   (let [arglist (gensym "arglist__")
-        delegate-name (str (munge name) "__delegate")]
+        delegate-name (str (munge local) "__delegate")]
     (emitln "(function (" arglist "){")
     (doseq [[i param] (map-indexed vector (drop-last 2 params))]
       (emits "var ")
@@ -765,15 +807,16 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity]}]
+  [{:keys [type local variadic params body env recurs max-fixed-arity]}]
+  {:pre [(ana/ast? body)]}
   (emit-wrap env
-    (emits "(function " (munge name) "(")
+    (emits "(function " (munge local) "(")
     (emit-fn-params params)
     (emitln "){")
     (when type
       (emitln "var self__ = this;"))
     (when recurs (emitln "while(true){"))
-    (emits expr)
+    (emits body)
     (when recurs
       (emitln "break;")
       (emitln "}"))
@@ -794,10 +837,10 @@
     a))
 
 (defn emit-variadic-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity] :as f}]
+  [{:keys [type local variadic params body env recurs max-fixed-arity] :as f}]
   (emit-wrap env
-    (let [name (or name (gensym))
-          mname (munge name)
+    (let [local (or local (gensym))
+          mname (munge local)
           delegate-name (str mname "__delegate")]
       (emitln "(function() { ")
       (emits "var " delegate-name " = function (")
@@ -808,7 +851,7 @@
       (when type
         (emitln "var self__ = this;"))
       (when recurs (emitln "while(true){"))
-      (emits expr)
+      (emits body)
       (when recurs
         (emitln "break;")
         (emitln "}"))
@@ -837,14 +880,14 @@
 
       (emitln mname ".cljs$lang$maxFixedArity = " max-fixed-arity ";")
       (emits mname ".cljs$lang$applyTo = ")
-      (emit-apply-to (assoc f :name name))
+      (emit-apply-to (assoc f :local local))
       (emitln ";")
       (emitln mname ".cljs$core$IFn$_invoke$arity$variadic = " delegate-name ";")
       (emitln "return " mname ";")
       (emitln "})()"))))
 
 (defmethod emit* :fn
-  [{:keys [name env methods max-fixed-arity variadic recur-frames loop-lets]}]
+  [{:keys [local env methods max-fixed-arity variadic recur-frames loop-lets]}]
   ;;fn statements get erased, serve no purpose and can pollute scope if named
   (when-not (= :statement (:context env))
     (let [loop-locals (->> (concat (mapcat :params (filter #(and % @(:flag %)) recur-frames))
@@ -859,10 +902,10 @@
             (emits "return ")))
       (if (= 1 (count methods))
         (if variadic
-          (emit-variadic-fn-method (assoc (first methods) :name name))
-          (emit-fn-method (assoc (first methods) :name name)))
-        (let [name (or name (gensym))
-              mname (munge name)
+          (emit-variadic-fn-method (assoc (first methods) :local local))
+          (emit-fn-method (assoc (first methods) :local local)))
+        (let [local (or local (gensym))
+              mname (munge local)
               maxparams (apply max-key count (map :params methods))
               mmap (into {}
                      (map (fn [method]
@@ -933,24 +976,24 @@
     (when (and statements (= :expr context)) (emitln "})()"))))
 
 (defmethod emit* :try
-  [{:keys [env try catch name finally]}]
+  [{:keys [env body name catch finally]}]
   (let [context (:context env)]
     (if (or name finally)
       (do
         (when (= :expr context)
           (emits "(function (){"))
-        (emits "try{" try "}")
-        (when name
+        (emits "try{" body "}")
+        (when name 
           (emits "catch (" (munge name) "){" catch "}"))
         (when finally
           (assert (not= :const (:op finally)) "finally block cannot contain constant")
           (emits "finally {" finally "}"))
         (when (= :expr context)
           (emits "})()")))
-      (emits try))))
+      (emits body))))
 
 (defn emit-let
-  [{:keys [bindings expr env]} is-loop]
+  [{:keys [bindings body env]} is-loop]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
     (binding [*lexical-renames*
@@ -962,12 +1005,9 @@
                         (vector (hash-scope binding)
                           (gensym (str name "-")))))
                     bindings)))]
-      (doseq [{:keys [init] :as binding} bindings]
-        (emits "var ")
-        (emit binding) ; Binding will be treated as a var
-        (emitln " = " init ";"))
+      (run! emit bindings)
       (when is-loop (emitln "while(true){"))
-      (emits expr)
+      (emits body)
       (when is-loop
         (emitln "break;")
         (emitln "}")))
@@ -990,12 +1030,11 @@
     (emitln "continue;")))
 
 (defmethod emit* :letfn
-  [{:keys [bindings expr env]}]
+  [{:keys [bindings body env]}]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
-    (doseq [{:keys [init] :as binding} bindings]
-      (emitln "var " (munge binding) " = " init ";"))
-    (emits expr)
+    (run! emit bindings)
+    (emits body)
     (when (= :expr context) (emits "})()"))))
 
 (defn protocol-prefix [psym]
@@ -1005,7 +1044,7 @@
             "$")))
 
 (defmethod emit* :invoke
-  [{:keys [f args env] :as expr}]
+  [{f :fn :keys [args env] :as expr}]
   (let [info (:info f)
         fn? (and ana/*cljs-static-fns*
                  (not (:dynamic info))
@@ -1200,7 +1239,7 @@
   (load-libs requires nil (:require reloads) deps name)
   (load-libs uses requires (:use reloads) deps name))
 
-(defmethod emit* :deftype*
+(defmethod emit* :deftype
   [{:keys [t fields pmasks body protocols]}]
   (let [fields (map munge fields)]
     (emitln "")
@@ -1217,7 +1256,7 @@
     (emitln "});")
     (emit body)))
 
-(defmethod emit* :defrecord*
+(defmethod emit* :defrecord
   [{:keys [t fields pmasks body protocols]}]
   (let [fields (concat (map munge fields) '[__meta __extmap __hash])]
     (emitln "")
@@ -1234,14 +1273,17 @@
     (emitln "});")
     (emit body)))
 
-(defmethod emit* :dot
-  [{:keys [target field method args env]}]
+(defmethod emit* :host-field
+  [{:keys [target field env]}]
   (emit-wrap env
-    (if field
-      (emits target "." (munge field #{}))
-      (emits target "." (munge method #{}) "("
-        (comma-sep args)
-        ")"))))
+    (emits target "." (munge field #{}))))
+
+(defmethod emit* :host-call
+  [{:keys [target method args env]}]
+  (emit-wrap env
+    (emits target "." (munge method #{}) "("
+      (comma-sep args)
+      ")")))
 
 (defmethod emit* :js
   [{:keys [op env code segs args]}]
