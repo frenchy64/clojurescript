@@ -18,6 +18,11 @@
 (def aenv (assoc-in (ana/empty-env) [:ns :name] 'cljs.user))
 (def cenv (env/default-compiler-env))
 
+(ana/no-warn
+  (env/with-compiler-env cenv
+    (binding [ana/*analyze-deps* false]
+      (ana/analyze-file (File. "src/main/cljs/cljs/core.cljs")))))
+
 #_(deftest should-recompile
   (let [src (File. "test/hello.cljs")
         dst (File/createTempFile "compilertest" ".cljs")
@@ -207,12 +212,23 @@
 
 ;; CLJS-1461
 
-(comment
-    (env/with-compiler-env cenv
-      (comp/emit
-        (ana/analyze aenv
-          '(1 '(1 2)))))
-    )
+(defmacro em [form]
+  `(do
+     (prn
+       (env/with-compiler-env cenv
+         (comp/emit
+           (ana/analyze aenv '~form))))
+     true))
+
+(deftest compile-ast
+  (is (em (println 1)))
+  (is (em (try (println 1))))
+  (is (em (inc
+            (try (println 1)
+                 (catch :default e 1)))))
+  (is (em (println
+            (case 1 :a 2))))
+  )
 
 (comment
   ;; combining boolean hint w/ static fns

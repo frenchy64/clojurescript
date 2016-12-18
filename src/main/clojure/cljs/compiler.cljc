@@ -340,7 +340,7 @@
             (cond-> info
               (not= form 'js/-Infinity) munge)))))))
 
-(defmethod emit* :var-special
+(defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
   {:pre [(ana/ast? sym) (ana/ast? meta)]}
   (let [{:keys [name]} (:info var)]
@@ -348,7 +348,7 @@
       (emits "new cljs.core.Var(function(){return " (munge name) ";},"
         sym "," meta ")"))))
 
-(defmethod emit* :meta
+(defmethod emit* :with-meta
   [{:keys [expr meta env]}]
   (emit-wrap env
     (emits "cljs.core.with_meta(" expr "," meta ")")))
@@ -357,6 +357,7 @@
 
 (defn distinct-keys? [keys]
   (and (every? #(= (:op %) :const) keys)
+       ;; this looks suspicious, shouldn't it be (into #{} (map :val keys))? - Ambrose
        (= (count (into #{} keys)) (count keys))))
 
 (defmethod emit* :map
@@ -410,10 +411,15 @@
 
       :else (emits "cljs.core.PersistentHashSet.createAsIfByAssoc([" (comma-sep items) "], true)"))))
 
-(defmethod emit* :js-value
-  [{:keys [items js-type env]}]
+(defmethod emit* :js-array
+  [{:keys [items env]}]
   (emit-wrap env
-    (if (= js-type :object)
+    (emits "[" (comma-sep items) "]")))
+
+(defmethod emit* :js-object
+  [{:keys [keys vals js-type env]}]
+  (let [items (map vector keys val)]
+    (emit-wrap env
       (do
         (emits "({")
         (when-let [items (seq items)]
@@ -421,23 +427,22 @@
             (emits "\"" (name k) "\": " v)
             (doseq [[k v] r]
               (emits ", \"" (name k) "\": " v))))
-        (emits "})"))
-      (emits "[" (comma-sep items) "]"))))
+        (emits "})")))))
 
 (defmethod emit* :const
-  [{:keys [form env]}]
+  [{:keys [val env]}]
   (when-not (= :statement (:context env))
-    (emit-wrap env (emit-constant form))))
+    (emit-wrap env (emit-constant val))))
 
-(defn truthy-constant? [{:keys [op form]}]
+(defn truthy-constant? [{:keys [op val]}]
   (and (= op :const)
-       form
-       (not (or (and (string? form) (= form ""))
-                (and (number? form) (zero? form))))))
+       val
+       (not (or (and (string? val) (= val ""))
+                (and (number? val) (zero? val))))))
 
-(defn falsey-constant? [{:keys [op form]}]
+(defn falsey-constant? [{:keys [op val]}]
   (and (= op :const)
-       (or (false? form) (nil? form))))
+       (or (false? val) (nil? val))))
 
 (defn safe-test? [env e]
   (let [tag (ana/infer-tag env e)]
@@ -460,21 +465,40 @@
           (emitln then "} else {")
           (emitln else "}"))))))
 
+(defmethod emit* :case-test
+  [{:keys [test]}]
+  {:pre [(map? test)]}
+  (emitln "case " test ":"))
+
+(defmethod emit* :case-then
+  [{:keys [then env ::case-gs]}]
+  {:pre [(map? then)
+         (map? env)
+         (symbol? case-gs)]}
+  (if (= :expr (:context env))
+    (emitln case-gs "=" then)
+    (emitln then)))
+
+(defmethod emit* :case-node
+  [{:keys [tests then env ::case-gs]}]
+  {:pre [(vector? tests)
+         (map? then)
+         (map? env)]}
+  (run! emit tests)
+  (emit (assoc then ::case-gs case-gs))
+  (emitln "break;"))
+
 (defmethod emit* :case
-  [{:keys [test tests thens default env]}]
+  [{:keys [test nodes default env]}]
+  {:pre [(vector? nodes)]}
   (when (= (:context env) :expr)
     (emitln "(function(){"))
   (let [gs (gensym "caseval__")]
     (when (= :expr (:context env))
       (emitln "var " gs ";"))
     (emitln "switch (" test ") {")
-    (doseq [[ts then] (partition 2 (interleave tests thens))]
-      (doseq [test ts]
-        (emitln "case " test ":"))
-      (if (= :expr (:context env))
-        (emitln gs "=" then)
-        (emitln then))
-      (emitln "break;"))
+    (run! emit (->> nodes
+                    (map #(assoc % ::case-gs gs))))
     (when default
       (emitln "default:")
       (if (= :expr (:context env))
@@ -485,10 +509,12 @@
       (emitln "return " gs ";})()"))))
 
 (defmethod emit* :throw
-  [{:keys [throw env]}]
+  [{:keys [exception env]}]
+  {:pre [(map? exception)
+         (map? env)]}
   (if (= :expr (:context env))
-    (emits "(function(){throw " throw "})()")
-    (emitln "throw " throw ";")))
+    (emits "(function(){throw " exception "})()")
+    (emitln "throw " exception ";")))
 
 (def base-types
   #{"null" "*" "...*"
@@ -631,7 +657,7 @@
      (when (:def-emits-var env)
        (emitln "; return (")
        (emits (merge
-                {:op  :var-special
+                {:op  :the-var
                  :env (assoc env :context :expr)}
                 var-ast))
        (emitln ");})()"))
@@ -691,7 +717,7 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity]}]
+  [{:keys [type name variadic? params expr env recurs fixed-arity]}]
   (emit-wrap env
     (emits "(function " (munge name) "(")
     (emit-fn-params params)
@@ -720,7 +746,7 @@
     a))
 
 (defn emit-variadic-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity] :as f}]
+  [{:keys [type name variadic? params body env recurs fixed-arity] :as f}]
   (emit-wrap env
     (let [name (or name (gensym))
           mname (munge name)
@@ -732,19 +758,19 @@
         (when-not (= param (last params)) (emits ",")))
       (emitln "){")
       (when recurs (emitln "while(true){"))
-      (emits expr)
+      (emits body)
       (when recurs
         (emitln "break;")
         (emitln "}"))
       (emitln "};")
 
       (emitln "var " mname " = function (" (comma-sep
-                                             (if variadic
+                                             (if variadic?
                                                (concat (butlast params) ['var_args])
                                                params)) "){")
       (when type
         (emitln "var self__ = this;"))
-      (when variadic
+      (when variadic?
         (emits "var ")
         (emit (last params))
         (emitln " = null;")
@@ -759,7 +785,7 @@
       (emits ");")
       (emitln "};")
 
-      (emitln mname ".cljs$lang$maxFixedArity = " max-fixed-arity ";")
+      (emitln mname ".cljs$lang$maxFixedArity = " fixed-arity ";")
       (emits mname ".cljs$lang$applyTo = ")
       (emit-apply-to (assoc f :name name))
       (emitln ";")
@@ -768,7 +794,7 @@
       (emitln "})()"))))
 
 (defmethod emit* :fn
-  [{:keys [name env methods max-fixed-arity variadic recur-frames loop-lets]}]
+  [{:keys [name env methods fixed-arity variadic? recur-frames loop-lets]}]
   ;;fn statements get erased, serve no purpose and can pollute scope if named
   (when-not (= :statement (:context env))
     (let [loop-locals (->> (concat (mapcat :params (filter #(and % @(:flag %)) recur-frames))
@@ -782,7 +808,7 @@
         (when-not (= :return (:context env))
             (emits "return ")))
       (if (= 1 (count methods))
-        (if variadic
+        (if variadic?
           (emit-variadic-fn-method (assoc (first methods) :name name))
           (emit-fn-method (assoc (first methods) :name name)))
         (let [name (or name (gensym))
@@ -800,25 +826,25 @@
           (emitln "var " mname " = null;")
           (doseq [[n meth] ms]
             (emits "var " n " = ")
-            (if (:variadic meth)
+            (if (:variadic? meth)
               (emit-variadic-fn-method meth)
               (emit-fn-method meth))
             (emitln ";"))
-            (emitln mname " = function(" (comma-sep (if variadic
+            (emitln mname " = function(" (comma-sep (if variadic?
                                                       (concat (butlast maxparams) ['var_args])
                                                       maxparams)) "){")
-          (when variadic
+          (when variadic?
             (emits "var ")
             (emit (last maxparams))
             (emitln " = var_args;"))
           (emitln "switch(arguments.length){")
           (doseq [[n meth] ms]
-            (if (:variadic meth)
+            (if (:variadic? meth)
               (do (emitln "default:")
                   (let [restarg (munge (gensym))]
                     (emitln "var " restarg " = null;")
-                    (emitln "if (arguments.length > " max-fixed-arity ") {")
-                    (let [a (emit-arguments-to-array max-fixed-arity)]
+                    (emitln "if (arguments.length > " fixed-arity ") {")
+                    (let [a (emit-arguments-to-array fixed-arity)]
                       (emitln restarg " = new cljs.core.IndexedSeq(" a ",0);"))
                     (emitln "}")
                     (emitln "return " n ".cljs$core$IFn$_invoke$arity$variadic("
@@ -832,12 +858,12 @@
           (emitln "}")
           (emitln "throw(new Error('Invalid arity: ' + arguments.length));")
           (emitln "};")
-          (when variadic
-            (emitln mname ".cljs$lang$maxFixedArity = " max-fixed-arity ";")
-            (emitln mname ".cljs$lang$applyTo = " (some #(let [[n m] %] (when (:variadic m) n)) ms) ".cljs$lang$applyTo;"))
+          (when variadic?
+            (emitln mname ".cljs$lang$maxFixedArity = " fixed-arity ";")
+            (emitln mname ".cljs$lang$applyTo = " (some #(let [[n m] %] (when (:variadic? m) n)) ms) ".cljs$lang$applyTo;"))
           (doseq [[n meth] ms]
             (let [c (count (:params meth))]
-              (if (:variadic meth)
+              (if (:variadic? meth)
                 (emitln mname ".cljs$core$IFn$_invoke$arity$variadic = " n ".cljs$core$IFn$_invoke$arity$variadic;")
                 (emitln mname ".cljs$core$IFn$_invoke$arity$" c " = " n ";"))))
           (emitln "return " mname ";")
@@ -854,15 +880,15 @@
     (when (and statements (= :expr context)) (emitln "})()"))))
 
 (defmethod emit* :try
-  [{:keys [env body catches finally]}]
+  [{:keys [env body name catch finally]}]
   (let [context (:context env)]
     (if (or name finally)
       (do
         (when (= :expr context)
           (emits "(function (){"))
         (emits "try{" body "}")
-        (when-let [[catch] catches]
-          (emits "catch (" (munge (-> catch :local :name)) "){" catch "}"))
+        (when name 
+          (emits "catch (" (munge name) "){" catch "}"))
         (when finally
           (assert (not= :const (:op finally)) "finally block cannot contain constant")
           (emits "finally {" finally "}"))
@@ -871,7 +897,7 @@
       (emits body))))
 
 (defn emit-let
-  [{:keys [bindings expr env]} is-loop]
+  [{:keys [bindings body env]} is-loop]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
     (binding [*lexical-renames*
@@ -888,7 +914,7 @@
         (emit binding) ; Binding will be treated as a var
         (emitln " = " init ";"))
       (when is-loop (emitln "while(true){"))
-      (emits expr)
+      (emits body)
       (when is-loop
         (emitln "break;")
         (emitln "}")))
@@ -911,12 +937,12 @@
     (emitln "continue;")))
 
 (defmethod emit* :letfn
-  [{:keys [bindings expr env]}]
+  [{:keys [bindings body env]}]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
     (doseq [{:keys [init] :as binding} bindings]
       (emitln "var " (munge binding) " = " init ";"))
-    (emits expr)
+    (emits body)
     (when (= :expr context) (emits "})()"))))
 
 (defn protocol-prefix [psym]
@@ -926,7 +952,7 @@
             "$")))
 
 (defmethod emit* :invoke
-  [{:keys [f args env] :as expr}]
+  [{f :fn :keys [args env] :as expr}]
   (let [info (:info f)
         fn? (and ana/*cljs-static-fns*
                  (not (:dynamic info))
@@ -953,13 +979,13 @@
                     (when-let [ns-str (str ns)]
                       (= (get (string/split ns-str #"\.") 0 nil) "goog"))))
         keyword? (and (= (-> f :op) :const)
-                      (keyword? (-> f :form)))
+                      (keyword? (-> f :val)))
         [f variadic-invoke]
         (if fn?
           (let [arity (count args)
-                variadic? (:variadic info)
+                variadic? (:variadic? info)
                 mps (:method-params info)
-                mfa (:max-fixed-arity info)]
+                mfa (:fixed-arity info)]
             (cond
              ;; if only one method, no renaming needed
              (and (not variadic?)
@@ -976,7 +1002,7 @@
                     ;; shadowing already applied
                     (update-in [:info]
                       #(-> % (dissoc :shadow) (dissoc :fn-self-name))))))
-              {:max-fixed-arity mfa}]
+              {:fixed-arity mfa}]
 
              ;; direct dispatch to specific arity case
              :else
@@ -1006,7 +1032,7 @@
        (emits f ".cljs$core$IFn$_invoke$arity$" (count args) "(" (comma-sep args) ")")
        
        variadic-invoke
-       (let [mfa (:max-fixed-arity variadic-invoke)]
+       (let [mfa (:fixed-arity variadic-invoke)]
         (emits f "(" (comma-sep (take mfa args))
                (when-not (zero? mfa) ",")
                "cljs.core.array_seq([" (comma-sep (drop mfa args)) "], 0))"))
@@ -1081,7 +1107,7 @@
   (load-libs requires nil (:require reloads))
   (load-libs uses requires (:use reloads)))
 
-(defmethod emit* :deftype*
+(defmethod emit* :deftype
   [{:keys [t fields pmasks body protocols]}]
   (let [fields (map munge fields)]
     (emitln "")
@@ -1098,7 +1124,7 @@
     (emitln "})")
     (emit body)))
 
-(defmethod emit* :defrecord*
+(defmethod emit* :defrecord
   [{:keys [t fields pmasks body protocols]}]
   (let [fields (concat (map munge fields) '[__meta __extmap __hash])]
     (emitln "")
@@ -1115,14 +1141,17 @@
     (emitln "})")
     (emit body)))
 
-(defmethod emit* :dot
-  [{:keys [target field method args env]}]
+(defmethod emit* :host-field
+  [{:keys [target field env]}]
   (emit-wrap env
-    (if field
-      (emits target "." (munge field #{}))
-      (emits target "." (munge method #{}) "("
-        (comma-sep args)
-        ")"))))
+    (emits target "." (munge field #{}))))
+
+(defmethod emit* :host-call
+  [{:keys [target method args env]}]
+  (emit-wrap env
+    (emits target "." (munge method #{}) "("
+      (comma-sep args)
+      ")")))
 
 (defmethod emit* :js
   [{:keys [op env code segs args]}]

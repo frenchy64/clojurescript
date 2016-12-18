@@ -619,14 +619,344 @@
                    '(let [y 1] (def y 2))))]
     (is (some? (-> parsed :expr :ret :var-ast)))))
 
+(defn ana' [form]
+  (e/with-compiler-env test-cenv
+    (a/analyze test-env form)))
+
 (defmacro ana [form]
-  `(e/with-compiler-env test-cenv
-     (a/analyze test-env '~form)))
+  `(ana' '~form))
 
+(defn prs-ana [fstr]
+  (e/with-compiler-env test-cenv
+    (let [[form] (a/forms-seq*
+                   (java.io.StringReader. fstr))]
+      (ana' form))))
 
-(deftest analyze-list 
-  (is (= (:op (ana 1)) :const))
-  (is (= (:op (ana '(1 2 3))) :list))
+(def juxt-op-val (juxt :op :val))
+
+(deftest analyze-ops
+  ;constants
+  (is (= (-> (ana 1) juxt-op-val) [:const 1]))
+  (is (= (:op (ana '(1 2 3))) :const))
+  ;variables
+  (is (= (:op (ana inc)) :var))
+  ;do
+  (is (= (-> (ana (do 1 2)) :op) :do))
+  (is (= (-> (ana (do 1 2)) :children) [:statements :ret]))
+  ;   :statements
+  (is (vector? (-> (ana (do)) :statements)))
+  (is (vector? (-> (ana (do 1)) :statements)))
+  (is (vector? (-> (ana (do 1 2)) :statements)))
+  (is (= (-> (ana (do 1 2)) :statements first :op) :const))
+  ;   :ret
+  (is (= (-> (ana (do)) :ret juxt-op-val) [:const nil]))
+  (is (= (-> (ana (do nil)) :ret juxt-op-val) [:const nil]))
+  (is (= (-> (ana (do 1)) :ret juxt-op-val) [:const 1]))
+  (is (= (-> (ana (do 1 2)) :ret juxt-op-val) [:const 2]))
+  ;let
+  (is (= (-> (ana (let [])) :op) :let))
+  (is (= (-> (ana (let [a 1] a)) :children) [:bindings :body]))
+  ;  :bindings
+  (is ((every-pred vector? empty?) (-> (ana (let [])) :bindings)))
+  (is (vector? (-> (ana (let [a 1] a)) :bindings)))
+  (is (vector? (-> (ana (let [a 1 b 2] a)) :bindings)))
+  (is (= (-> (ana (let [a 1] a)) :bindings first :op) :var))
+  (is (= (-> (ana (let [a 1] a)) :bindings first :init :op) :const))
+  ;  :body
+  (is (= (-> (ana (let [a 1] a)) :body :op) :do))
+  ;local
+  (is (empty? (-> (ana (let [a 1] a)) :body :ret :children)))
+  (is (= (-> (ana (let [a 1] a)) :body :ret :op) :var))
+  ;loop
+  (is (= (-> (ana (loop [])) :op) :loop))
+  (is (= (-> (ana (loop [a 1])) :bindings first :op) :var))
+  (is (= (-> (ana (loop [a 1] a)) :bindings first :init :op) :const))
+  (is (= (-> (ana (loop [a 1] (recur 1))) :children) [:bindings :body]))
+  ;recur
+  (is (= (-> (ana (loop [a 1] (recur 1))) :body :ret :op) :recur))
+  (is (= (-> (ana (loop [a 1] (recur 1))) :body :ret :children) [:exprs]))
+  ;    :exprs
+  (is ((every-pred vector? empty?) (-> (ana (loop [] (recur))) :body :ret :exprs)))
+  (is (vector? (-> (ana (loop [a 1] (recur 1))) :body :ret :exprs)))
+  (is (vector? (-> (ana (loop [a 1 b 2] (recur 1 2))) :body :ret :exprs)))
+  (is (= (-> (ana (loop [a 1] (recur 1))) :body :ret :exprs first :op) :const))
+  (is (= (-> (ana (loop [a 1 b 2] (recur 1 2))) :body :ret :exprs second :op) :const))
+  ;try
+  (is (= (-> (ana (try)) :op) :try))
+  (is (= (-> (ana (try)) :children) [:body]))
+  (is (= (-> (ana (try (catch :default e))) :children) [:body :catch]))
+  (is (= (-> (ana (try (catch :default e) (finally))) :children) [:body :catch :finally]))
+  (is (= (-> (ana (try (finally))) :children) [:body :finally]))
+  ;   :name
+  (is (symbol? (-> (ana (try (catch :default a))) :name)))
+  (is (nil? (-> (ana (try)) :name)))
+  ;   :catch
+  (is (keyword? (-> (ana (try (catch :default a))) :catch :op)))
+  ;   :finally
+  (is (= (-> (ana (try (finally 1))) :finally :op) :do))
+  (is (= (-> (ana (try (finally 1))) :finally :ret :op) :const))
+  ;case
+  (is (= (-> (ana (case 1)) :op) :let))
+  (is (= (-> (ana (case 1)) :body :ret :op) :case))
+  (is (= (-> (ana (case 1)) :body :ret :children) [:test :nodes :default]))
+  ;   :test
+  (is (= (-> (ana (case 1)) :body :ret :test :op) :var))
+  ;   :nodes
+  (is (vector? (-> (ana (case 1)) :body :ret :nodes)))
+  (is (vector? (-> (ana (case 1 :a 1)) :body :ret :nodes)))
+  (is (vector? (-> (ana (case 1 (:a :b) 1)) :body :ret :nodes)))
+  ;       :tests
+  (is (vector?
+        (-> (ana (case 1 :a 1)) :body :ret :nodes first :tests)))
+  (is (vector?
+        (-> (ana (case 1 :a 1 :b 2)) :body :ret :nodes first :tests)))
+  (is (= (-> (ana (case 1 :a 1)) :body :ret :nodes first :tests first juxt-op-val)
+         [:const "a"]))
+  (is (= (-> (ana (case 1 :a 1 :b 2)) :body :ret :nodes second :tests first juxt-op-val)
+         [:const "b"]))
+  (is (= (-> (ana (case 1 :a 1 (:b :faz) 2)) :body :ret :nodes (nth 2) :tests first juxt-op-val)
+         [:const "faz"]))
+  ;       :thens
+  (is (= (-> (ana (case 1 :a 3)) :body :ret :nodes first :then juxt-op-val)
+         [:const 3]))
+  (is (= (-> (ana (case 1 :a 3 :b 4)) :body :ret :nodes second :then juxt-op-val)
+         [:const 4]))
+  (is (= (-> (ana (case 1 :a 3 (:b :c) 4)) :body :ret :nodes (nth 2) :then juxt-op-val)
+         [:const 4]))
+  ;   :default
+  (is (= :throw (-> (ana (case 1)) :body :ret :default :op)))
+  (is (= [:const 2] (-> (ana (case 1 2)) :body :ret :default juxt-op-val)))
+  ;def
+  (is (= :def (-> (ana (def a)) :op)))
+  (is (= nil (-> (ana (def a)) :children)))
+  (is (= [:init] (-> (ana (def a 1)) :children)))
+  ;   :name
+  (is (= "a" (-> (ana (def a 1)) :name name)))
+  ;   :init
+  (is (= nil (-> (ana (def a)) :init)))
+  (is (= [:const 1] (-> (ana (def a 1)) :init juxt-op-val)))
+  ;deftype
+  (is (= :deftype (-> (ana (deftype A [])) :statements first :op)))
+  (is (= [:body] (-> (ana (deftype A [])) :statements first :children)))
+  ;   :body
+  (is (= :do (-> (ana (deftype A [] Object (toString [this] "a"))) :statements first :body :op)))
+  ;defrecord
+  (is (= :defrecord (-> (ana (defrecord Ab [])) :body :statements first :ret :op)))
+  (is (= [:body] (-> (ana (defrecord Ab [])) :body :statements first :ret :children)))
+  ;   :body
+  (is (= :do (-> (ana (defrecord Ab [] Object (toString [this] "a"))) :body :statements first :ret :body :op)))
+  ;fn
+  (is (= :fn (-> (ana (fn [])) :op)))
+  (is (= [:methods] (-> (ana (fn [])) :children)))
+  ;   :variadic?
+  (is (true? (-> (ana (fn [& a])) :variadic?)))
+  (is (false? (-> (ana (fn [])) :variadic?)))
+  ;   :methods
+  (is (vector? (-> (ana (fn [])) :methods)))
+  (is (vector? (-> (ana (fn ([]) ([a]))) :methods)))
+  ;fn-method
+  (is (= :fn-method (-> (ana (fn [])) :methods first :op)))
+  (is (= [:body] (-> (ana (fn [])) :methods first :children)))
+  ;   :fixed-arity
+  (is (= 0 (-> (ana (fn [])) :methods first :fixed-arity)))
+  (is (= 1 (-> (ana (fn [a])) :methods first :fixed-arity)))
+  (is (= 2 (-> (ana (fn [a b & c])) :methods first :fixed-arity)))
+  ;   :variadic
+  (is (true? (-> (ana (fn [a b & c])) :variadic?)))
+  (is (false? (-> (ana (fn [a b])) :variadic?)))
+  ;   :body
+  (is (= [:const 1] (-> (ana (fn [] 1)) :methods first :body :ret juxt-op-val)))
+    ;FIXME add tests for :fn-method :params
+  ;if
+  (is (= :if (-> (ana (if 1 2)) :op)))
+  (is (= :if (-> (ana (if 1 2 3)) :op)))
+  (is (= [:test :then :else] (-> (ana (if 1 2 3)) :children)))
+  (is (= [:test :then :else] (-> (ana (if 1 2)) :children)))
+  ;   :test
+  (is (= [:const 1] (-> (ana (if 1 2)) :test juxt-op-val)))
+  (is (= [:const 1] (-> (ana (if 1 2 3)) :test juxt-op-val)))
+  ;   :then
+  (is (= [:const 2] (-> (ana (if 1 2)) :then juxt-op-val)))
+  (is (= [:const 2] (-> (ana (if 1 2 3)) :then juxt-op-val)))
+  ;   :else
+  (is (= [:const nil] (-> (ana (if 1 2)) :else juxt-op-val)))
+  (is (= [:const 3]   (-> (ana (if 1 2 3)) :else juxt-op-val)))
+  ;invoke
+  (is (= :invoke (-> (ana (:a 1)) :op)))
+  (is (= [:fn :args] (-> (ana (:a 1)) :children)))
+  (is ((every-pred vector? empty?) (-> (ana (#'str)) :args)))
+  (is (vector? (-> (ana (:a 1)) :args)))
+  (is (vector? (-> (ana (:a 1 2)) :args)))
+  ;   :fn
+  (is (= :the-var (-> (ana (#'str)) :fn :op)))
+  ;   :invoke
+  (is (= [:const 1] (-> (ana (:a 1)) :args first juxt-op-val)))
+  (is (= [:const 2] (-> (ana (:a 1 2)) :args second juxt-op-val)))
+  ;js-array
+  (is (= :js-array (-> (prs-ana "#js ['a]") :op)))
+  (is (= [:items] (-> (prs-ana "#js ['a]") :children)))
+  (is (vector? (-> (prs-ana "#js ['a]") :items)))
+  (is (= 'array (-> (prs-ana "#js ['a]") :tag)))
+  (is (= [:const 'a] (-> (prs-ana "#js ['a]") :items first juxt-op-val)))
+  ;js-object
+  (is (= :js-object (-> (prs-ana "#js {:a 1}]") :op)))
+;; FIXME :keys should be an expression too
+  (is (= [:vals] (-> (prs-ana "#js {:a 1}") :children)))
+  (is (vector? (-> (prs-ana "#js {:a 1}") :vals)))
+  (is (= :a (-> (prs-ana "#js {:a 1}") :keys first)))
+  (is (vector? (-> (prs-ana "#js {:a 1}") :keys)))
+  (is (= [:const 1] (-> (prs-ana "#js {:a 1}") :vals first juxt-op-val)))
+  ;js*
+  (is (= :js (-> (ana (js* "~{}" 'food)) :op)))
+  (is (= [:args] (-> (ana (js* "~{}" 'food)) :children)))
+  (is (vector? (-> (ana (js* "~{}" 'food)) :args)))
+  (is (= [:const 'food] (-> (ana (js* "~{}" 'food)) :args first juxt-op-val)))
+;; FIXME why not a vector?
+  ;(is (vector? (-> (ana (js* "~{} / ~{}" 1 2)) :segs)))
+  (is (= ["" " / " ""] (-> (ana (js* "~{} / ~{}" 1 2)) :segs)))
+  ;letfn
+  (is (= :letfn
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :op)))
+  (is (= [:bindings :body]
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :children)))
+  ;   :bindings
+  (is (vector?
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :bindings)))
+;FIXME :bindings is non-standard
+;  (is (vector?
+;         (-> (ana (letfn [(my-inc [a] (inc a))]
+;                    (my-inc 1)))
+;             :bindings
+;             first)))
+  (is (vector?
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :bindings)))
+  ;   :body
+  (is (= :invoke
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :body :ret :op)))
+  (is (= :var
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :body :ret :fn :op)))
+  ;map
+  (is (= :map (-> (ana {:a 1}) :op)))
+  (is (= [:keys :vals] (-> (ana {:a 1}) :children)))
+  ;   :keys
+  (is ((every-pred vector? empty?) (-> (ana {}) :keys)))
+  (is (vector? (-> (ana {:a 1}) :keys)))
+  (is (= [:const :a] (-> (ana {:a 1}) :keys first juxt-op-val)))
+  ;   :vals
+  (is ((every-pred vector? empty?) (-> (ana {}) :vals)))
+  (is (vector? (-> (ana {:a 1}) :vals)))
+  (is (= [:const 1] (-> (ana {:a 1}) :vals first juxt-op-val)))
+  ;new
+  (is (= :new
+         (-> (ana (do (deftype Person [a]) (Person. 1)))
+             :ret
+             :op)))
+  (is (= [:ctor :args]
+         (-> (ana (do (deftype Person [a]) (Person. 1)))
+             :ret
+             :children)))
+  ;   :ctor
+  (is (= [:var 'cljs.core/Person]
+         (-> (ana (do (deftype Person [a]) (Person. 1)))
+             :ret
+             :ctor
+             ((juxt :op (comp :name :info))))))
+  ;   :args
+  (is ((every-pred vector? empty?)
+         (-> (ana (do (deftype Noarg []) (Noarg.)))
+             :ret
+             :args)))
+  (is (= [:const 1]
+         (-> (ana (do (deftype Person [a]) (Person. 1)))
+             :ret
+             :args
+             first
+             juxt-op-val)))
+  ;set
+  (is (= :set (-> (ana #{:a :b}) :op)))
+  (is (= [:items] (-> (ana #{:a :b}) :children)))
+  ;   :items
+  (is ((every-pred vector? empty?)  (-> (ana #{}) :items)))
+  (is (vector? (-> (ana #{:a}) :items)))
+  (is (vector? (-> (ana #{:a :c :b}) :items)))
+  (is (= [:const :a] (-> (ana #{:a}) :items first juxt-op-val)))
+  ;set!
+  (is (= :set!
+         (-> (ana (do (def a 1) (set! a "Hi!")))
+             :ret :op)))
+  (is (= [:target :val]
+         (-> (ana (do (def a 1) (set! a "Hi!")))
+             :ret :children)))
+  ;   :target
+  (is (= [:var 'cljs.core/a]
+         (-> (ana (do (def a 1) (set! a "Hi!")))
+             :ret :target ((juxt :op (comp :name :info))))))
+  ;   :val
+  (is (= [:const "Hi!"]
+         (-> (ana (do (def a 1) (set! a "Hi!")))
+             :ret :val juxt-op-val)))
+  ;the-var
+  (is (= :the-var (-> (ana #'+) :op)))
+  (is (nil? (-> (ana #'+) :children)))
+  ;   :var
+  (is (= 'cljs.core/+ (-> (ana #'+) :var :info :name)))
+  ;throw
+  (is (= :throw (-> (ana (throw (js/Error. "bad"))) :op)))
+  (is (= [:exception] (-> (ana (throw (js/Error. "bad"))) :children)))
+  ;   :exception
+  (is (= [:var 'js/Error] (-> (ana (throw (js/Error. "bad"))) :exception 
+                              :ctor
+                              ((juxt :op (comp :name :info))))))
+  ;vector
+  (is (= :vector (-> (ana [1]) :op)))
+  (is (= [:items] (-> (ana [1]) :children)))
+  ;   :items
+  (is ((every-pred vector? empty?) (-> (ana []) :items)))
+  (is (vector? (-> (ana [1]) :items)))
+  (is (= [:const 1] (-> (ana [1]) :items first juxt-op-val)))
+  ;with-meta
+  (is (= :with-meta (-> (ana ^:blah (fn [])) :op)))
+  (is (= [:meta :expr] (-> (ana ^:blah (fn [])) :children)))
+  ;   :meta
+  (is (= :map (-> (ana ^:blah (fn [])) :meta :op)))
+  (is (= [:const :blah] (-> (ana ^:blah (fn [])) :meta :keys first juxt-op-val)))
+  (is (= [:const true] (-> (ana ^:blah (fn [])) :meta :vals first juxt-op-val)))
+  ;   :expr
+  (is (= :fn (-> (ana ^:blah (fn [])) :expr :op)))
+  ;host-field
+  (is (= :host-field (-> (ana (.-field 'a)) :op)))
+  (is (= [:target] (-> (ana (.-field 'a)) :children)))
+  (is (= 'field (-> (ana (.-field 'a)) :field)))
+  ;   :target
+  (is (= [:const 'a] (-> (ana (.-field 'a)) :target juxt-op-val)))
+  ;host-call
+  (is (= :host-call (-> (ana (.call 'a)) :op)))
+  (is (= [:target :args] (-> (ana (.call 'a)) :children)))
+  (is (= 'call (-> (ana (.call 'a)) :method)))
+  ;   :target
+  (is (= [:const 'a] (-> (ana (.call 'a)) :target juxt-op-val)))
+  ;   :args
+  (is ((every-pred vector? empty?) (-> (ana (.call 'a)) :args)))
+  (is (= [:const 1] (-> (ana (.call 'a 1)) :args first juxt-op-val)))
+  ;ns
+  (is (binding [a/*cljs-ns* 'cljs.user]
+        (= :ns (-> (ana (ns fazz.foo)) :op))))
+  ;ns*
+  (is (binding [a/*cljs-ns* 'cljs.user]
+        (= :ns* (-> (ana (refer-clojure :exclude '[locking])) :op))))
+  ;quote
 )
 
 (comment
