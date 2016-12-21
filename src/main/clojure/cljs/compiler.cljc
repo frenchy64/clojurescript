@@ -730,7 +730,7 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{:keys [type name variadic? params body env recurs fixed-arity]}]
+  [{:keys [type name variadic params body env recurs max-fixed-arity]}]
   {:pre [(ana/ast? body)]}
   (emit-wrap env
     (emits "(function " (munge name) "(")
@@ -760,7 +760,7 @@
     a))
 
 (defn emit-variadic-fn-method
-  [{:keys [type name variadic? params body env recurs fixed-arity] :as f}]
+  [{:keys [type name variadic params body env recurs max-fixed-arity] :as f}]
   (emit-wrap env
     (let [name (or name (gensym))
           mname (munge name)
@@ -779,12 +779,12 @@
       (emitln "};")
 
       (emitln "var " mname " = function (" (comma-sep
-                                             (if variadic?
+                                             (if variadic
                                                (concat (butlast params) ['var_args])
                                                params)) "){")
       (when type
         (emitln "var self__ = this;"))
-      (when variadic?
+      (when variadic
         (emits "var ")
         (emit (last params))
         (emitln " = null;")
@@ -799,7 +799,7 @@
       (emits ");")
       (emitln "};")
 
-      (emitln mname ".cljs$lang$maxFixedArity = " fixed-arity ";")
+      (emitln mname ".cljs$lang$maxFixedArity = " max-fixed-arity ";")
       (emits mname ".cljs$lang$applyTo = ")
       (emit-apply-to (assoc f :name name))
       (emitln ";")
@@ -808,7 +808,7 @@
       (emitln "})()"))))
 
 (defmethod emit* :fn
-  [{:keys [name env methods fixed-arity variadic? recur-frames loop-lets]}]
+  [{:keys [name env methods max-fixed-arity variadic recur-frames loop-lets]}]
   ;;fn statements get erased, serve no purpose and can pollute scope if named
   (when-not (= :statement (:context env))
     (let [loop-locals (->> (concat (mapcat :params (filter #(and % @(:flag %)) recur-frames))
@@ -822,7 +822,7 @@
         (when-not (= :return (:context env))
             (emits "return ")))
       (if (= 1 (count methods))
-        (if variadic?
+        (if variadic
           (emit-variadic-fn-method (assoc (first methods) :name name))
           (emit-fn-method (assoc (first methods) :name name)))
         (let [name (or name (gensym))
@@ -840,25 +840,25 @@
           (emitln "var " mname " = null;")
           (doseq [[n meth] ms]
             (emits "var " n " = ")
-            (if (:variadic? meth)
+            (if (:variadic meth)
               (emit-variadic-fn-method meth)
               (emit-fn-method meth))
             (emitln ";"))
-            (emitln mname " = function(" (comma-sep (if variadic?
+            (emitln mname " = function(" (comma-sep (if variadic
                                                       (concat (butlast maxparams) ['var_args])
                                                       maxparams)) "){")
-          (when variadic?
+          (when variadic
             (emits "var ")
             (emit (last maxparams))
             (emitln " = var_args;"))
           (emitln "switch(arguments.length){")
           (doseq [[n meth] ms]
-            (if (:variadic? meth)
+            (if (:variadic meth)
               (do (emitln "default:")
                   (let [restarg (munge (gensym))]
                     (emitln "var " restarg " = null;")
-                    (emitln "if (arguments.length > " fixed-arity ") {")
-                    (let [a (emit-arguments-to-array fixed-arity)]
+                    (emitln "if (arguments.length > " max-fixed-arity ") {")
+                    (let [a (emit-arguments-to-array max-fixed-arity)]
                       (emitln restarg " = new cljs.core.IndexedSeq(" a ",0);"))
                     (emitln "}")
                     (emitln "return " n ".cljs$core$IFn$_invoke$arity$variadic("
@@ -872,12 +872,12 @@
           (emitln "}")
           (emitln "throw(new Error('Invalid arity: ' + arguments.length));")
           (emitln "};")
-          (when variadic?
-            (emitln mname ".cljs$lang$maxFixedArity = " fixed-arity ";")
-            (emitln mname ".cljs$lang$applyTo = " (some #(let [[n m] %] (when (:variadic? m) n)) ms) ".cljs$lang$applyTo;"))
+          (when variadic
+            (emitln mname ".cljs$lang$maxFixedArity = " max-fixed-arity ";")
+            (emitln mname ".cljs$lang$applyTo = " (some #(let [[n m] %] (when (:variadic m) n)) ms) ".cljs$lang$applyTo;"))
           (doseq [[n meth] ms]
             (let [c (count (:params meth))]
-              (if (:variadic? meth)
+              (if (:variadic meth)
                 (emitln mname ".cljs$core$IFn$_invoke$arity$variadic = " n ".cljs$core$IFn$_invoke$arity$variadic;")
                 (emitln mname ".cljs$core$IFn$_invoke$arity$" c " = " n ";"))))
           (emitln "return " mname ";")
@@ -993,17 +993,17 @@
         [f variadic-invoke]
         (if fn?
           (let [arity (count args)
-                variadic? (:variadic? info)
+                variadic (:variadic info)
                 mps (:method-params info)
-                mfa (:fixed-arity info)]
+                mfa (:max-fixed-arity info)]
             (cond
              ;; if only one method, no renaming needed
-             (and (not variadic?)
+             (and (not variadic)
                   (= (count mps) 1))
              [f nil]
 
              ;; direct dispatch to variadic case
-             (and variadic? (> arity mfa))
+             (and variadic (> arity mfa))
              [(update-in f [:info]
                 (fn [info]
                   (-> info
@@ -1012,7 +1012,7 @@
                     ;; shadowing already applied
                     (update-in [:info]
                       #(-> % (dissoc :shadow) (dissoc :fn-self-name))))))
-              {:fixed-arity mfa}]
+              {:max-fixed-arity mfa}]
 
              ;; direct dispatch to specific arity case
              :else
@@ -1042,7 +1042,7 @@
        (emits f ".cljs$core$IFn$_invoke$arity$" (count args) "(" (comma-sep args) ")")
        
        variadic-invoke
-       (let [mfa (:fixed-arity variadic-invoke)]
+       (let [mfa (:max-fixed-arity variadic-invoke)]
         (emits f "(" (comma-sep (take mfa args))
                (when-not (zero? mfa) ",")
                "cljs.core.array_seq([" (comma-sep (drop mfa args)) "], 0))"))
