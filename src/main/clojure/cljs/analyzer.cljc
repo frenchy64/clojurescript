@@ -838,7 +838,8 @@
            (when-not (has-extern? pre)
              (swap! env/*compiler* update-in
                (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
-           (or (assoc shadowed-by-local :local true)
+           (or (when shadowed-by-local
+                 (assoc shadowed-by-local :local true))
                {:name sym
                 :ns 'js
                 :tag (with-meta 'js {:prefix pre})})))
