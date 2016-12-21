@@ -702,6 +702,7 @@
                       (first (string/split sufstr #"\."))
                       suffix)
          suffix     (symbol suffix-str)]
+     (prn "confirm-var-exists" prefix suffix-str)
      (when (and (not (implicit-import? env prefix suffix))
                 (not (loaded-js-ns? env prefix))
                 (not (and (= 'cljs.core prefix) (= 'unquote suffix)))
@@ -1619,6 +1620,7 @@
                   (let [env (assoc-in meth-env [:locals name] shadow)
                         fexpr (analyze env (n->fexpr name))
                         be' (assoc be
+                              :op :binding
                               :init fexpr
                               :variadic (:variadic fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
@@ -1627,6 +1629,7 @@
                      (conj bes be')]))
           [meth-env []] bes)
         expr (analyze (assoc meth-env :context (if (= :expr context) :return context)) `(do ~@exprs))]
+    (assert (vector? bes))
     {:env env :op :letfn :bindings bes :body expr :form form
      :children [:bindings :body]}))
 
@@ -2827,7 +2830,6 @@
                    (not (valid-arity? argc method-params))
                    (or (not variadic)
                        (and variadic (< argc max-fixed-arity))))
-          (prn ":fn-arity" variadic argc max-fixed-arity)
           (warning :fn-arity env {:name name :argc argc}))))
     (when (and kw? (not (or (== 1 argc) (== 2 argc))))
       (warning :fn-arity env {:name (first form) :argc argc}))

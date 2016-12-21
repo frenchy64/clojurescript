@@ -129,7 +129,7 @@
   {:op   :fn
    :doc  "Node for a fn* special-form expression"
    :keys [[:form "`(fn* name? [arg*] body*)` or `(fn* name? method*)`"]
-          [:variadic? "`true` if this function contains a variadic arity method"]
+          [:variadic "`true` if this function contains a variadic arity method"]
           [:max-fixed-arity "The number of arguments taken by the fixed-arity method taking the most arguments"]
           #_#_
           [:internal-name "The internal name symbol used for the fn"]
@@ -148,11 +148,11 @@
    :doc  "Node for an arity method in a fn* expression"
    :keys [[:form "`([arg*] body*)`"]
           ;[:loop-id "Unique symbol identifying this method as a target for recursion"]
-          [:variadic? "`true` if this fn-method takes a variable number of arguments"]
+          [:variadic "`true` if this fn-method takes a variable number of arguments"]
           ;FIXME :params
           ;^:children
           [:params "A vector of symbols representing the method parameters" #_"A vector of :binding AST nodes with :local :arg representing this fn-method args"]
-          [:fixed-arity "The number of non-variadic args this fn-method takes"]
+          [:max-fixed-arity "The number of non-variadic args this fn-method takes"]
           ^:children
           [:body "Synthetic :do node (with :body? `true`) representing the body of this fn-method"]]}
   {:op   :host-call

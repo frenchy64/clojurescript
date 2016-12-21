@@ -759,22 +759,22 @@
   ;fn
   (is (= :fn (-> (ana (fn [])) :op)))
   (is (= [:methods] (-> (ana (fn [])) :children)))
-  ;   :variadic?
-  (is (true? (-> (ana (fn [& a])) :variadic?)))
-  (is (false? (-> (ana (fn [])) :variadic?)))
+  ;   :variadic
+  (is (true? (-> (ana (fn [& a])) :variadic)))
+  (is (false? (-> (ana (fn [])) :variadic)))
   ;   :methods
   (is (vector? (-> (ana (fn [])) :methods)))
   (is (vector? (-> (ana (fn ([]) ([a]))) :methods)))
   ;fn-method
   (is (= :fn-method (-> (ana (fn [])) :methods first :op)))
   (is (= [:body] (-> (ana (fn [])) :methods first :children)))
-  ;   :fixed-arity
-  (is (= 0 (-> (ana (fn [])) :methods first :fixed-arity)))
-  (is (= 1 (-> (ana (fn [a])) :methods first :fixed-arity)))
-  (is (= 2 (-> (ana (fn [a b & c])) :methods first :fixed-arity)))
+  ;   :max-fixed-arity
+  (is (= 0 (-> (ana (fn [])) :methods first :max-fixed-arity)))
+  (is (= 1 (-> (ana (fn [a])) :methods first :max-fixed-arity)))
+  (is (= 2 (-> (ana (fn [a b & c])) :methods first :max-fixed-arity)))
   ;   :variadic
-  (is (true? (-> (ana (fn [a b & c])) :variadic?)))
-  (is (false? (-> (ana (fn [a b])) :variadic?)))
+  (is (true? (-> (ana (fn [a b & c])) :variadic)))
+  (is (false? (-> (ana (fn [a b])) :variadic)))
   ;   :body
   (is (= [:const 1] (-> (ana (fn [] 1)) :methods first :body :ret juxt-op-val)))
     ;FIXME add tests for :fn-method :params
@@ -839,16 +839,23 @@
          (-> (ana (letfn [(my-inc [a] (inc a))]
                     (my-inc 1)))
              :bindings)))
-;FIXME :bindings is non-standard
-;  (is (vector?
-;         (-> (ana (letfn [(my-inc [a] (inc a))]
-;                    (my-inc 1)))
-;             :bindings
-;             first)))
   (is (vector?
          (-> (ana (letfn [(my-inc [a] (inc a))]
                     (my-inc 1)))
              :bindings)))
+  (is (= :binding
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :bindings
+             first
+             :op)))
+  (is (= :fn
+         (-> (ana (letfn [(my-inc [a] (inc a))]
+                    (my-inc 1)))
+             :bindings
+             first
+             :init
+             :op)))
   ;   :body
   (is (= :invoke
          (-> (ana (letfn [(my-inc [a] (inc a))]
