@@ -430,10 +430,10 @@
         (emits "({")
         (when-let [items (seq items)]
           (let [[[k v] & r] items]
-            (assert (ast? v))
+            (assert (ana/ast? v))
             (emits "\"" (name k) "\": " v)
             (doseq [[k v] r]
-              (assert (ast? v))
+              (assert (ana/ast? v))
               (emits ", \"" (name k) "\": " v))))
         (emits "})")))))
 

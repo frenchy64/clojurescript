@@ -220,6 +220,7 @@
            (ana/analyze aenv '~form))))
      true))
 
+#_
 (deftest compile-ast
   (is (em (println 1)))
   (is (em (try (println 1))))
