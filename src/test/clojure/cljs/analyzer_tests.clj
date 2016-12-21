@@ -827,7 +827,7 @@
   (is (= :js (-> (ana (js* "~{}" 'food)) :op)))
   (is (= [:args] (-> (ana (js* "~{}" 'food)) :children)))
   (is (vector? (-> (ana (js* "~{}" 'food)) :args)))
-  (is (= [:const 'food] (-> (ana (js* "~{}" 'food)) :args first juxt-op-val)))
+  (is (= [:const 'food] (-> (ana (js* "~{}" 'food)) :args first :expr juxt-op-val)))
 ;; FIXME why not a vector?
   ;(is (vector? (-> (ana (js* "~{} / ~{}" 1 2)) :segs)))
   (is (= ["" " / " ""] (-> (ana (js* "~{} / ~{}" 1 2)) :segs)))
@@ -964,13 +964,13 @@
   (is (= [:target] (-> (ana (.-field 'a)) :children)))
   (is (= 'field (-> (ana (.-field 'a)) :field)))
   ;   :target
-  (is (= [:const 'a] (-> (ana (.-field 'a)) :target juxt-op-val)))
+  (is (= [:const 'a] (-> (ana (.-field 'a)) :target :expr juxt-op-val)))
   ;host-call
   (is (= :host-call (-> (ana (.call 'a)) :op)))
   (is (= [:target :args] (-> (ana (.call 'a)) :children)))
   (is (= 'call (-> (ana (.call 'a)) :method)))
   ;   :target
-  (is (= [:const 'a] (-> (ana (.call 'a)) :target juxt-op-val)))
+  (is (= [:const 'a] (-> (ana (.call 'a)) :target :expr juxt-op-val)))
   ;   :args
   (is ((every-pred vector? empty?) (-> (ana (.call 'a)) :args)))
   (is (= [:const 1] (-> (ana (.call 'a 1)) :args first juxt-op-val)))
