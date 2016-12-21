@@ -1103,10 +1103,11 @@
                  true BOOLEAN_SYM
                  false BOOLEAN_SYM
                  ANY_SYM)
-        :var      (if-not (nil? (:init e))
+        (:var :binding :local)
+                  (if-not (nil? (:init e))
                     (infer-tag env (:init e))
                     (infer-tag env (:info e)))
-        :dot      ANY_SYM
+        (:host-field :host-call)      ANY_SYM
         :js       ANY_SYM
         nil))))
 

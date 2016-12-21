@@ -816,7 +816,7 @@
 
 (core/defn- simple-test-expr? [env ast]
   (core/and
-    (#{:var :invoke :const :dot :js} (:op ast))
+    (#{:var :binding :local :invoke :const :host-field :host-call :js} (:op ast))
     ('#{boolean seq} (cljs.analyzer/infer-tag env ast))))
 
 (core/defmacro and
