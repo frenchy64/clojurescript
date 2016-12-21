@@ -245,7 +245,6 @@
   (is (em (print
             (let [a 1 a 2]
               [a]))))
-  (is (em (let [alert js/alert] (println js/alert))))
   )
 
 (comment

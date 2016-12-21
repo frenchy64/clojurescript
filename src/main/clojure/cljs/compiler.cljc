@@ -424,14 +424,16 @@
 
 (defmethod emit* :js-object
   [{:keys [keys vals js-type env]}]
-  (let [items (map vector keys val)]
+  (let [items (map vector keys vals)]
     (emit-wrap env
       (do
         (emits "({")
         (when-let [items (seq items)]
           (let [[[k v] & r] items]
+            (assert (ast? v))
             (emits "\"" (name k) "\": " v)
             (doseq [[k v] r]
+              (assert (ast? v))
               (emits ", \"" (name k) "\": " v))))
         (emits "})")))))
 

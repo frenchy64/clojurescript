@@ -667,10 +667,9 @@
   ;local
   (is (empty? (-> (ana (let [a 1] a)) :body :ret :children)))
   (is (= (-> (ana (let [a 1] a)) :body :ret :op) :local))
-
   ;local shadow
-  (is (= (-> (ana (let [alert js/alert] js/alert)) :body :ret :op)
-         :local))
+  (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret :op))
+         :local)))
   (comment
     (-> (ana (let [a 1] a)) :body :ret :env :locals clojure.pprint/pprint)
     (-> (ana (let [alert js/alert] alert)))
