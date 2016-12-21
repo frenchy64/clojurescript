@@ -831,16 +831,17 @@
    (let [locals (:locals env)]
      (if #?(:clj  (= "js" (namespace sym))
             :cljs (identical? "js" (namespace sym)))
-       (do
-         (when (contains? locals (-> sym name symbol))
+       (let [shadowed-by-local (get locals (-> sym name symbol))]
+         (when shadowed-by-local
            (warning :js-shadowed-by-local env {:name sym}))
          (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
            (when-not (has-extern? pre)
              (swap! env/*compiler* update-in
                (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
-           {:name sym
-            :ns 'js
-            :tag (with-meta 'js {:prefix pre})}))
+           (or (assoc shadowed-by-local :local true)
+               {:name sym
+                :ns 'js
+                :tag (with-meta 'js {:prefix pre})})))
        (let [s  (str sym)
              lb (get locals sym)]
          (cond
@@ -2871,9 +2872,8 @@
                  (assoc env :column column)
                  env)
           ret  {:env env :form sym}
-          lcls (:locals env)
-          lb   (get lcls sym)]
-      (if-not (nil? lb)
+          lcls (:locals env)]
+      (if-let [lb (get lcls sym)]
         (assoc ret :op :local :info lb)
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
@@ -2890,11 +2890,19 @@
                                sym)])
               info     (if-not (contains? sym-meta ::analyzed)
                          (resolve-existing-var env sym)
-                         (resolve-var env sym))]
-          (if-not (true? (:def-var env))
-            (assoc ret :op :var :info info)
+                         (resolve-var env sym))
+              op-fn (fn [info]
+                      (if (:local info)
+                        :local
+                        :var))]
+          (if-not (:def-var env)
+            (assoc ret 
+                   :op (op-fn info)
+                   :info info)
             (let [info (resolve-var env sym)]
-              (assoc ret :op :var :info info))))))))
+              (assoc ret 
+                     :op (op-fn info)
+                     :info info))))))))
 
 (defn excluded?
   #?(:cljs {:tag boolean})
