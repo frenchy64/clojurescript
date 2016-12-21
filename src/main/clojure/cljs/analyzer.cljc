@@ -702,7 +702,6 @@
                       (first (string/split sufstr #"\."))
                       suffix)
          suffix     (symbol suffix-str)]
-     (prn "confirm-var-exists" prefix suffix-str)
      (when (and (not (implicit-import? env prefix suffix))
                 (not (loaded-js-ns? env prefix))
                 (not (and (= 'cljs.core prefix) (= 'unquote suffix)))
@@ -2557,7 +2556,7 @@
                                  :volatile-mutable (-> fld meta :volatile-mutable)
                                  :tag (-> fld meta :tag)
                                  :shadow (m fld)}))
-                       {} (if (= :defrecord* op)
+                       {} (if (= :defrecord op)
                             (concat fields '[__meta __extmap ^:mutable __hash])
                             fields))
         protocols (-> tsym meta :protocols)]
@@ -2567,7 +2566,7 @@
                        :name t
                        :type true
                        :num-fields (count fields)
-                       :record (= :defrecord* op))]
+                       :record (= :defrecord op))]
                (merge m
                       (dissoc (meta tsym) :protocols)
                       {:protocols protocols}

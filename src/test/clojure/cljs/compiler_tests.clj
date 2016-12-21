@@ -246,6 +246,10 @@
   (is (em (print
             (let [a 1 a 2]
               [a]))))
+  (is (em 
+        (deftype A [a] Object (toString [this] a))))
+  (is (em 
+        (defrecord B [a] Object (toString [this] a))))
   )
 
 (comment

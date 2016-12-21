@@ -750,7 +750,13 @@
   (is (= :deftype (-> (ana (deftype A [])) :statements first :op)))
   (is (= [:body] (-> (ana (deftype A [])) :statements first :children)))
   ;   :body
-  (is (= :do (-> (ana (deftype A [] Object (toString [this] "a"))) :statements first :body :op)))
+  (is (= :do (-> (ana (deftype A [a] Object (toString [this] a))) :statements first :body :op)))
+        ; field reference
+  (is (= [:local true]
+         (-> (ana (deftype A [a] Object (toString [this] a))) 
+             :statements first :body :ret :val :methods
+             first :body :ret :body :ret 
+             ((juxt :op (comp :field :info))))))
   ;defrecord
   (is (= :defrecord (-> (ana (defrecord Ab [])) :body :statements first :ret :op)))
   (is (= [:body] (-> (ana (defrecord Ab [])) :body :statements first :ret :children)))
