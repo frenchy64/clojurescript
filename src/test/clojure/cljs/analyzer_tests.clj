@@ -707,7 +707,7 @@
   (is (= (-> (ana (case 1)) :body :ret :op) :case))
   (is (= (-> (ana (case 1)) :body :ret :children) [:test :nodes :default]))
   ;   :test
-  (is (= (-> (ana (case 1)) :body :ret :test :op) :var))
+  (is (= (-> (ana (case 1)) :body :ret :test :op) :local))
   ;   :nodes
   (is (vector? (-> (ana (case 1)) :body :ret :nodes)))
   (is (vector? (-> (ana (case 1 :a 1)) :body :ret :nodes)))
@@ -867,7 +867,7 @@
          (-> (ana (letfn [(my-inc [a] (inc a))]
                     (my-inc 1)))
              :body :ret :op)))
-  (is (= :var
+  (is (= :local
          (-> (ana (letfn [(my-inc [a] (inc a))]
                     (my-inc 1)))
              :body :ret :fn :op)))
