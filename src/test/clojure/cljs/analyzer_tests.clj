@@ -617,7 +617,7 @@
   (let [parsed (e/with-compiler-env test-cenv
                  (a/analyze (assoc test-env :def-emits-var true)
                    '(let [y 1] (def y 2))))]
-    (is (some? (-> parsed :expr :ret :var-ast)))))
+    (is (some? (-> parsed :body :ret :var-ast)))))
 
 (defn ana' [form]
   (e/with-compiler-env test-cenv
