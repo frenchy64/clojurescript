@@ -51,14 +51,14 @@
              (ana/analyze aenv
                '(defn foo []
                   (fn bar [])))
-             [:init :children 0 :children 0 :name]))
-          'cljs$user$foo_$_bar))
+             [:init :methods 0 :body :ret :name]))
+         'cljs$user$foo_$_bar))
   (is (= (comp/munge
            (get-in
              (ana/analyze aenv
                '(fn []
                   (fn console [])))
-             [:children 0 :children 0 :name]))
+             [:methods 0 :body :ret :name]))
          'cljs$user$console)))
 
 (deftest test-js-negative-infinity

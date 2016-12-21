@@ -1145,6 +1145,10 @@
 
 (defmethod parse 'var
   [op env [_ sym :as form] _ _]
+  (when (not= 2 (count form))
+    (throw (error env "Wrong number of args to var")))
+  (when-not (symbol? sym)
+    (throw (error env "Argument to var must be symbol")))
   (merge
     {:env env
      :op :the-var
@@ -1187,8 +1191,9 @@
                       thens)
         nodes    (mapv (fn [tests then]
                          {:pre [(vector? tests)]}
+                         ; no :form, this is a synthetic grouping node
                          {:op :case-node
-                          :env env ;; which env should this be? - Ambrose
+                          :env env ;; just use original env - Ambrose
                           :tests tests
                           :then then
                           :children [:tests :then]})

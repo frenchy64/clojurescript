@@ -1009,6 +1009,26 @@
             (.getMessage e)))
         "Wrong number of args to quote")))
 
+(deftest var-args-error-test
+  (is (.startsWith
+        (try
+          (ana (var))
+          (catch Exception e
+            (.getMessage e)))
+        "Wrong number of args to var"))
+  (is (.startsWith
+        (try
+          (ana (var a b))
+          (catch Exception e
+            (.getMessage e)))
+        "Wrong number of args to var"))
+  (is (.startsWith
+        (try
+          (ana (var nil))
+          (catch Exception e
+            (.getMessage e)))
+        "Argument to var must be symbol")))
+
 (comment
   (require '[cljs.compiler :as cc])
 
