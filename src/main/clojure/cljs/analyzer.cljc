@@ -819,7 +819,13 @@
 
 (defn resolve-var
   "Resolve a var. Accepts a side-effecting confirm fn for producing
-   warnings about unresolved vars."
+   warnings about unresolved vars.
+  
+  Returns a map:
+  
+  :name   a possibly qualified symbol denoting the original form
+  :ns     a symbol denoting the fully qualified namespace of the variable
+  :tag    a tag"
   ([env sym] (resolve-var env sym nil))
   ([env sym confirm]
    (let [locals (:locals env)]
@@ -1431,7 +1437,7 @@
                    (locals name))
           env    (merge (select-keys env [:context])
                    {:line line :column column})
-          param  {:op :var
+          param  {:op :binding
                   :name name
                   :line line
                   :column column
@@ -1683,6 +1689,7 @@
                 line (get-line name env)
                 col (get-col name env)
                 be {:name name
+                    :form name
                     :line line
                     :column col
                     :init init-expr
@@ -1691,7 +1698,8 @@
                     :shadow (-> env :locals name)
                     ;; Give let* bindings same shape as var so
                     ;; they get routed correctly in the compiler
-                    :op :var
+                    ;:op :var
+                    :op :binding
                     :env {:line line :column col}
                     :info {:name name
                            :shadow (-> env :locals name)}
@@ -1768,8 +1776,14 @@
       :children [:exprs])))
 
 (defmethod parse 'quote
-  [_ env [_ x] _ _]
-  (analyze (assoc env :quoted? true) x))
+  [_ env [_ & [x & more :as args] :as form] _ _]
+  (when (or more (not args))
+    (throw (error env "Wrong number of args to quote")))
+  {:op :quote
+   :expr (analyze (assoc env :quoted? true) x)
+   :env env
+   :form form
+   :children [:expr]})
 
 (defmethod parse 'new
   [_ env [_ ctor & args :as form] _ _]
@@ -1781,7 +1795,7 @@
          record-args
          (when (and (:record ctor-var) (not (-> ctor meta :internal-ctor)))
            (repeat 3 (analyze enve nil)))
-         argexprs (into (vec (map #(analyze enve %) args)) record-args)
+         argexprs (into (mapv #(analyze enve %) args) record-args)
          known-num-fields (:num-fields ctor-var)
          argc (count args)]
      (when (and (not (-> ctor meta :internal-ctor))
@@ -2857,7 +2871,7 @@
           lcls (:locals env)
           lb   (get lcls sym)]
       (if-not (nil? lb)
-        (assoc ret :op :var :info lb)
+        (assoc ret :op :local :info lb)
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
               cur-ns (str (-> env :ns :name))

@@ -320,25 +320,31 @@
 
 (defmethod emit* :no-op [m])
 
-(defmethod emit* :var
+(defn emit-var
   [{:keys [info env form] :as arg}]
   (let [var-name (:name info)
         info (if (= (namespace var-name) "js")
                (let [js-module-name (get-in @env/*compiler* [:js-module-index (name var-name)])]
                  (or js-module-name (name var-name)))
                info)]
-    ; We need a way to write bindings out to source maps and javascript
-    ; without getting wrapped in an emit-wrap calls, otherwise we get
-    ; e.g. (function greet(return x, return y) {}).
-    (if (:binding-form? arg)
-      ; Emit the arg map so shadowing is properly handled when munging
-      ; (prevents duplicate fn-param-names)
-      (emits (munge arg))
-      (when-not (= :statement (:context env))
-        (emit-wrap env
-          (emits
-            (cond-> info
-              (not= form 'js/-Infinity) munge)))))))
+    (when-not (= :statement (:context env))
+      (emit-wrap env
+        (emits
+          (cond-> info
+            (not= form 'js/-Infinity) munge))))))
+
+(defmethod emit* :var [expr] (emit-var expr))
+(defmethod emit* :local [expr] (emit-var expr))
+(defmethod emit* :binding [arg] 
+  ; We need a way to write bindings out to source maps and javascript
+  ; without getting wrapped in an emit-wrap calls, otherwise we get
+  ; e.g. (function greet(return x, return y) {}).
+
+  ; Emit the arg map so shadowing is properly handled when munging
+  ; (prevents duplicate fn-param-names)
+  (if-let [init (:init arg)]
+    (emitln "var " (munge arg) " = " init ";")
+    (emits (munge arg))))
 
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
@@ -429,6 +435,11 @@
               (emits ", \"" (name k) "\": " v))))
         (emits "})")))))
 
+(defmethod emit* :quote
+  [{:keys [expr]}]
+  {:pre [(ana/ast? expr)]}
+  (emit expr))
+
 (defmethod emit* :const
   [{:keys [val env]}]
   (when-not (= :statement (:context env))
@@ -467,12 +478,12 @@
 
 (defmethod emit* :case-test
   [{:keys [test]}]
-  {:pre [(map? test)]}
+  {:pre [(ana/ast? test)]}
   (emitln "case " test ":"))
 
 (defmethod emit* :case-then
   [{:keys [then env ::case-gs]}]
-  {:pre [(map? then)
+  {:pre [(ana/ast? then)
          (map? env)
          (symbol? case-gs)]}
   (if (= :expr (:context env))
@@ -480,12 +491,12 @@
     (emitln then)))
 
 (defmethod emit* :case-node
-  [{:keys [tests then env ::case-gs]}]
+  [{:keys [tests then env]}]
   {:pre [(vector? tests)
-         (map? then)
+         (ana/ast? then)
          (map? env)]}
   (run! emit tests)
-  (emit (assoc then ::case-gs case-gs))
+  (emit then)
   (emitln "break;"))
 
 (defmethod emit* :case
@@ -498,7 +509,7 @@
       (emitln "var " gs ";"))
     (emitln "switch (" test ") {")
     (run! emit (->> nodes
-                    (map #(assoc % ::case-gs gs))))
+                    (map #(assoc-in % [:then ::case-gs] gs))))
     (when default
       (emitln "default:")
       (if (= :expr (:context env))
@@ -717,7 +728,8 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{:keys [type name variadic? params expr env recurs fixed-arity]}]
+  [{:keys [type name variadic? params body env recurs fixed-arity]}]
+  {:pre [(ana/ast? body)]}
   (emit-wrap env
     (emits "(function " (munge name) "(")
     (emit-fn-params params)
@@ -725,7 +737,7 @@
     (when type
       (emitln "var self__ = this;"))
     (when recurs (emitln "while(true){"))
-    (emits expr)
+    (emits body)
     (when recurs
       (emitln "break;")
       (emitln "}"))
@@ -909,10 +921,7 @@
                         (vector (hash-scope binding)
                           (gensym (str name "-")))))
                     bindings)))]
-      (doseq [{:keys [init] :as binding} bindings]
-        (emits "var ")
-        (emit binding) ; Binding will be treated as a var
-        (emitln " = " init ";"))
+      (run! emit bindings)
       (when is-loop (emitln "while(true){"))
       (emits body)
       (when is-loop
@@ -940,8 +949,7 @@
   [{:keys [bindings body env]}]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
-    (doseq [{:keys [init] :as binding} bindings]
-      (emitln "var " (munge binding) " = " init ";"))
+    (run! emit bindings)
     (emits body)
     (when (= :expr context) (emits "})()"))))
 

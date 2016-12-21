@@ -637,7 +637,7 @@
 (deftest analyze-ops
   ;constants
   (is (= (-> (ana 1) juxt-op-val) [:const 1]))
-  (is (= (:op (ana '(1 2 3))) :const))
+  (is (= (:op (ana '(1 2 3))) :quote))
   ;variables
   (is (= (:op (ana inc)) :var))
   ;do
@@ -660,16 +660,24 @@
   (is ((every-pred vector? empty?) (-> (ana (let [])) :bindings)))
   (is (vector? (-> (ana (let [a 1] a)) :bindings)))
   (is (vector? (-> (ana (let [a 1 b 2] a)) :bindings)))
-  (is (= (-> (ana (let [a 1] a)) :bindings first :op) :var))
+  (is (= (-> (ana (let [a 1] a)) :bindings first :op) :binding))
   (is (= (-> (ana (let [a 1] a)) :bindings first :init :op) :const))
   ;  :body
   (is (= (-> (ana (let [a 1] a)) :body :op) :do))
   ;local
   (is (empty? (-> (ana (let [a 1] a)) :body :ret :children)))
-  (is (= (-> (ana (let [a 1] a)) :body :ret :op) :var))
+  (is (= (-> (ana (let [a 1] a)) :body :ret :op) :local))
+
+  ;local shadow
+  (is (= (-> (ana (let [alert js/alert] js/alert)) :body :ret :op)
+         :local))
+  (comment
+    (-> (ana (let [a 1] a)) :body :ret :env :locals clojure.pprint/pprint)
+    (-> (ana (let [alert js/alert] alert)))
+    )
   ;loop
   (is (= (-> (ana (loop [])) :op) :loop))
-  (is (= (-> (ana (loop [a 1])) :bindings first :op) :var))
+  (is (= (-> (ana (loop [a 1])) :bindings first :op) :binding))
   (is (= (-> (ana (loop [a 1] a)) :bindings first :init :op) :const))
   (is (= (-> (ana (loop [a 1] (recur 1))) :children) [:bindings :body]))
   ;recur
@@ -710,18 +718,22 @@
         (-> (ana (case 1 :a 1)) :body :ret :nodes first :tests)))
   (is (vector?
         (-> (ana (case 1 :a 1 :b 2)) :body :ret :nodes first :tests)))
-  (is (= (-> (ana (case 1 :a 1)) :body :ret :nodes first :tests first juxt-op-val)
+  (is (= (-> (ana (case 1 :a 1)) :body :ret :nodes first :tests first :op)
+         :case-test))
+  (is (= (-> (ana (case 1 :a 1)) :body :ret :nodes first :tests first :test juxt-op-val)
          [:const "a"]))
-  (is (= (-> (ana (case 1 :a 1 :b 2)) :body :ret :nodes second :tests first juxt-op-val)
+  (is (= (-> (ana (case 1 :a 1 :b 2)) :body :ret :nodes second :tests first :test juxt-op-val)
          [:const "b"]))
-  (is (= (-> (ana (case 1 :a 1 (:b :faz) 2)) :body :ret :nodes (nth 2) :tests first juxt-op-val)
+  (is (= (-> (ana (case 1 :a 1 (:b :faz) 2)) :body :ret :nodes (nth 2) :tests first :test juxt-op-val)
          [:const "faz"]))
   ;       :thens
-  (is (= (-> (ana (case 1 :a 3)) :body :ret :nodes first :then juxt-op-val)
+  (is (= (-> (ana (case 1 :a 3)) :body :ret :nodes first :then :op)
+         :case-then))
+  (is (= (-> (ana (case 1 :a 3)) :body :ret :nodes first :then :then juxt-op-val)
          [:const 3]))
-  (is (= (-> (ana (case 1 :a 3 :b 4)) :body :ret :nodes second :then juxt-op-val)
+  (is (= (-> (ana (case 1 :a 3 :b 4)) :body :ret :nodes second :then :then juxt-op-val)
          [:const 4]))
-  (is (= (-> (ana (case 1 :a 3 (:b :c) 4)) :body :ret :nodes (nth 2) :then juxt-op-val)
+  (is (= (-> (ana (case 1 :a 3 (:b :c) 4)) :body :ret :nodes (nth 2) :then :then juxt-op-val)
          [:const 4]))
   ;   :default
   (is (= :throw (-> (ana (case 1)) :body :ret :default :op)))
@@ -797,7 +809,7 @@
   (is (= [:items] (-> (prs-ana "#js ['a]") :children)))
   (is (vector? (-> (prs-ana "#js ['a]") :items)))
   (is (= 'array (-> (prs-ana "#js ['a]") :tag)))
-  (is (= [:const 'a] (-> (prs-ana "#js ['a]") :items first juxt-op-val)))
+  (is (= [:const :a] (-> (prs-ana "#js [:a]") :items first juxt-op-val)))
   ;js-object
   (is (= :js-object (-> (prs-ana "#js {:a 1}]") :op)))
 ;; FIXME :keys should be an expression too
@@ -957,7 +969,33 @@
   (is (binding [a/*cljs-ns* 'cljs.user]
         (= :ns* (-> (ana (refer-clojure :exclude '[locking])) :op))))
   ;quote
+  (is (= :quote (-> (ana (quote a)) :op)))
+  (is (= [:expr] (-> (ana (quote a)) :children)))
+  (is (map? (-> (ana (quote a)) :env)))
+  (is (= 'quote (-> (ana (quote a)) :form first)))
+  ;   :expr
+  (is (= [:const 'a] (-> (ana (quote a)) :expr juxt-op-val)))
 )
+
+(deftest quote-args-error-test
+  (is (.startsWith
+        (try
+          (ana (quote))
+          (catch Exception e
+            (.getMessage e)))
+        "Wrong number of args to quote"))
+  (is (.startsWith
+        (try
+          (ana (quote a b))
+          (catch Exception e
+            (.getMessage e)))
+        "Wrong number of args to quote"))
+  (is (.startsWith
+        (try
+          (ana (quote a b c d))
+          (catch Exception e
+            (.getMessage e)))
+        "Wrong number of args to quote")))
 
 (comment
   (require '[cljs.compiler :as cc])

@@ -228,6 +228,24 @@
                  (catch :default e 1)))))
   (is (em (println
             (case 1 :a 2))))
+  (is (em (println
+            (quote a))))
+  (is (em (println
+            (quote ^:foo a))))
+  (is (em (let [a (println 1)
+                b (println 2)]
+            [a b])))
+  (is (em (print
+            ((fn [a b]
+               [a b]) 1 2))))
+  (is (em (print
+            (apply inc 1 [2]))))
+  (is (em (print
+            (conj [] 1 [2]))))
+  (is (em (print
+            (let [a 1 a 2]
+              [a]))))
+  (is (em (let [alert js/alert] (println js/alert))))
   )
 
 (comment

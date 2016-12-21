@@ -226,22 +226,12 @@
            [:bindings "A vector of :binding AST nodes with :local :letfn"]
            ^:children
            [:body "Synthetic :do node (with :body? `true`) representing the body of the letfn expression"]]}
-;;FIXME add :local
-#_
   {:op   :local
    :doc  "Node for a local symbol"
    :keys [[:form "The local symbol"]
-          [:assignable? "`true` if the corresponding :binding AST node is :local :field and is declared either ^:volatile-mutable or ^:unsynchronized-mutable"]
           [:name "The uniquified local symbol"]
-          [:local "One of :arg, :catch, :fn, :let, :letfn, :loop, :field or :this"]
-          ^:optional
-          [:arg-id "When :local is :arg, the parameter index"]
-          ^:optional
-          [:variadic? "When :local is :arg, a boolean indicating whether this parameter binds to a variable number of arguments"]
-          [:atom "An atom shared by this :local node, the :binding node this local refers to and all the other :local nodes that refer to this same local"]
-          #_
-          ^:optional
-          [:to-clear? "When :local is :let, :loop, :catch or :arg, a boolean indicating whether this local is eligible for locals clearing"]]}
+          #_[:local "One of :arg, :catch, :fn, :let, :letfn, :loop, :field or :this"]
+          ]}
   {:op   :loop
    :doc  "Node a loop* special-form expression"
    :keys [[:form "`(loop* [binding*] body*)`"]
