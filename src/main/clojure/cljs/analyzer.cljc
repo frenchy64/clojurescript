@@ -1466,7 +1466,7 @@
         params'         (if (true? variadic)
                           (butlast params)
                           params)
-        max-fixed-arity (count params')
+        fixed-arity     (count params')
         recur-frame     {:params params :flag (atom nil)}
         recur-frames    (cons recur-frame *recur-frames*)
         body-env        (assoc env :context :return :locals locals)
@@ -1477,7 +1477,7 @@
      :env env
      :variadic variadic
      :params params
-     :max-fixed-arity max-fixed-arity
+     :max-fixed-arity fixed-arity
      :type type
      :form form
      :body expr
