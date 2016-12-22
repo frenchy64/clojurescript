@@ -832,17 +832,17 @@
      (if #?(:clj  (= "js" (namespace sym))
             :cljs (identical? "js" (namespace sym)))
        (let [shadowed-by-local (get locals (-> sym name symbol))]
-         (when shadowed-by-local
+         (when (some? shadowed-by-local)
            (warning :js-shadowed-by-local env {:name sym}))
          (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
            (when-not (has-extern? pre)
              (swap! env/*compiler* update-in
                (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
-           (or (when shadowed-by-local
-                 (assoc shadowed-by-local :local true))
-               {:name sym
-                :ns 'js
-                :tag (with-meta 'js {:prefix pre})})))
+           (if (some? shadowed-by-local)
+             shadowed-by-local
+             {:name sym
+              :ns 'js
+              :tag (with-meta 'js {:prefix pre})})))
        (let [s  (str sym)
              lb (get locals sym)]
          (cond
