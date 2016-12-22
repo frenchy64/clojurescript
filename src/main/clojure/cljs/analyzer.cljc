@@ -2898,7 +2898,7 @@
                          (resolve-existing-var env sym)
                          (resolve-var env sym))
               op-fn (fn [info]
-                      (if (:local info)
+                      (if (true? (:local info))
                         :local
                         :var))]
           (if-not (:def-var env)

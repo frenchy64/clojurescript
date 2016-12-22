@@ -342,7 +342,7 @@
 
   ; Emit the arg map so shadowing is properly handled when munging
   ; (prevents duplicate fn-param-names)
-  (if-let [init (:init arg)]
+  (if-some [init (:init arg)]
     (emitln "var " (munge arg) " = " init ";")
     (emits (munge arg))))
 
