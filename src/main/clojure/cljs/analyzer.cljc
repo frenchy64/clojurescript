@@ -1078,7 +1078,7 @@
     (if-not (nil? ret-tag)
       ret-tag
       (let [args (:args e)
-            me (assoc (find-matching-method f args) :op :method)
+            me (assoc (find-matching-method f args) :op :fn-method)
             ret-tag (infer-tag env me)]
         (if-not (nil? ret-tag)
           ret-tag
@@ -1094,11 +1094,11 @@
       (case (:op e)
         :recur    IGNORE_SYM
         :throw    IGNORE_SYM
-        :let      (infer-tag env (:expr e))
-        :loop     (infer-tag env (:expr e))
+        (:let :loop) (infer-tag env (:body e))
         :do       (infer-tag env (:ret e))
-        :method   (infer-tag env (:expr e))
-        :def      (infer-tag env (:init e))
+        :fn-method (infer-tag env (:body e))
+        :def      (when-some [init (:init e)]
+                    (infer-tag env init))
         :invoke   (infer-invoke env e)
         :if       (infer-if env e)
         :const (case (:val e)
