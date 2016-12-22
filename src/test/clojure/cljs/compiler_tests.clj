@@ -18,11 +18,6 @@
 (def aenv (assoc-in (ana/empty-env) [:ns :name] 'cljs.user))
 (def cenv (env/default-compiler-env))
 
-(ana/no-warn
-  (env/with-compiler-env cenv
-    (binding [ana/*analyze-deps* false]
-      (ana/analyze-file (File. "src/main/cljs/cljs/core.cljs")))))
-
 #_(deftest should-recompile
   (let [src (File. "test/hello.cljs")
         dst (File/createTempFile "compilertest" ".cljs")
