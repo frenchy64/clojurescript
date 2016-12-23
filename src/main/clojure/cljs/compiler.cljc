@@ -84,9 +84,14 @@
    (if #?(:clj  (map? s)
           :cljs (ana/cljs-map? s))
      (let [name-var s
-           name     (:name name-var)
+           name     (symbol (some-> (:ns name-var) str)
+                            (str (:name name-var)))
            field    (:field name-var)
            info     (:info name-var)]
+       (assert (nil? (some-> (:ns name-var) namespace)))
+       (assert (nil? (namespace (:name name-var))))
+       (assert (= (some-> (:ns name-var) str)
+                  (namespace name)))
        (if-not (nil? (:fn-self-name info))
          (fn-self-name s)
          ;; Unshadowing
@@ -159,8 +164,8 @@
               (fn [m]
                 (let [minfo (cond-> {:gcol (:gen-col m)
                                      :gline (:gen-line m)}
-                              (= (:op ast) :var)
-                              (assoc :name (str (-> ast :info :name))))]
+                              (#{:var :js-var :local} (:op ast))
+                              (assoc :name (str (:ns ast) (:name ast))))]
                   ; Dec the line/column numbers for 0-indexing.
                   ; tools.reader uses 1-indexed sources, chrome
                   ; expects 0-indexed source maps.
@@ -321,35 +326,37 @@
 (defmethod emit* :no-op [m])
 
 (defn emit-var
-  [{:keys [info env form] :as arg}]
-  (let [var-name (:name info)
-        info (if (= (namespace var-name) "js")
-               (let [js-module-name (get-in @env/*compiler* [:js-module-index (name var-name)])]
-                 (or js-module-name (name var-name)))
-               info)]
+  [{:keys [env form] :as arg}]
+  (let [var-name (:name arg)
+        arg (if (= (str (:ns arg)) "js")
+              (let [js-module-name (get-in @env/*compiler* [:js-module-index (name var-name)])]
+                (or js-module-name (name var-name)))
+              arg)]
     (when-not (= :statement (:context env))
       (emit-wrap env
         (emits
-          (cond-> info
+          (cond-> arg
             (not= form 'js/-Infinity) munge))))))
 
 (defmethod emit* :var [expr] (emit-var expr))
+(defmethod emit* :js-var [expr] (emit-var expr))
 (defmethod emit* :local [expr] (emit-var expr))
 (defmethod emit* :binding [arg] 
-  ; We need a way to write bindings out to source maps and javascript
-  ; without getting wrapped in an emit-wrap calls, otherwise we get
-  ; e.g. (function greet(return x, return y) {}).
-
   ; Emit the arg map so shadowing is properly handled when munging
   ; (prevents duplicate fn-param-names)
   (if-some [init (:init arg)]
     (emitln "var " (munge arg) " = " init ";")
+    ; We need a way to write bindings out to source maps and javascript
+    ; without getting wrapped in an emit-wrap calls, otherwise we get
+    ; e.g. (function greet(return x, return y) {}).
     (emits (munge arg))))
 
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
-  {:pre [(ana/ast? sym) (ana/ast? meta)]}
-  (let [{:keys [name]} (:info var)]
+  {:pre [(ana/ast? var)
+         (ana/ast? sym) 
+         (ana/ast? meta)]}
+  (let [name (symbol (str (:ns var)) (str (:name var)))]
     (emit-wrap env
       (emits "new cljs.core.Var(function(){return " (munge name) ";},"
         sym "," meta ")"))))
@@ -651,7 +658,7 @@
              (pr-str define))))))
 
 (defmethod emit* :def
-  [{:keys [name var init env doc jsdoc export test var-ast]}]
+  [{:keys [name var init env doc jsdoc export test the-var]}]
   ;; We only want to emit if an init is supplied, this is to avoid dead code
   ;; elimination issues. The REPL is the exception to this rule.
   (when (or init (:def-emits-var env))
@@ -669,10 +676,7 @@
            init)))
      (when (:def-emits-var env)
        (emitln "; return (")
-       (emits (merge
-                {:op  :the-var
-                 :env (assoc env :context :expr)}
-                var-ast))
+       (emits (assoc the-var :env (assoc env :context :expr)))
        (emitln ");})()"))
      (when (= :return (:context env))
          (emitln ")"))

@@ -11,12 +11,18 @@
   (:require [cljs.analyzer :as ana]
             [cljs.compiler :as comp]
             [cljs.env :as env]
+            [clojure.java.io :as io]
             [cljs.util :as util]
             [cljs.tagged-literals :as tags])
   (:import [java.io File]))
 
 (def aenv (assoc-in (ana/empty-env) [:ns :name] 'cljs.user))
 (def cenv (env/default-compiler-env))
+
+(ana/no-warn
+  (env/with-compiler-env cenv
+    (binding [ana/*analyze-deps* false]
+      (ana/analyze-file (io/file "src/main/cljs/cljs/core.cljs")))))
 
 #_(deftest should-recompile
   (let [src (File. "test/hello.cljs")
@@ -72,8 +78,9 @@
                (:info (ana/analyze {:ns {:name 'cljs.core}} 'cljs.core/..))))))))
 
 (deftest test-resolve-dotdot
-  (is (= '{:name cljs.core/..
-           :ns   cljs.core}
+  (is (= '{:name ..
+           :ns   cljs.core
+           :op :var}
          (ana/no-warn
            (env/with-compiler-env cenv
              (ana/resolve-var {:ns {:name 'cljs.core}} '..))))))
@@ -222,10 +229,9 @@
   (is (em (inc
             (try (println 1)
                  (catch :default e 1)))))
-  (is (em (println
-            (case 1 :a 2))))
-  (is (em (println
-            (quote a))))
+  (is (em (println (case 1 :a 2))))
+  (is (em (println (quote a))))
+  (is (em (println +)))
   (is (em (println
             (quote ^:foo a))))
   (is (em (let [a (println 1)
@@ -241,10 +247,12 @@
   (is (em (print
             (let [a 1 a 2]
               [a]))))
+  (is (em (println js/console)))
   (is (em 
-        (deftype A [a] Object (toString [this] a))))
+        (deftype A [a] Object (toString [this1232] a))))
   (is (em 
         (defrecord B [a] Object (toString [this] a))))
+  (is (em (print #'+)))
   )
 
 (comment

@@ -79,10 +79,11 @@
           ;[:meta "An AST node representing the metadata attached to :name, if present. The node will be either a :map node or a :const node with :type :map"]
           ^:optional ^:children
           [:init "An AST node representing the initial value of the var"]
+          ^:children
+          [:the-var "A :the-var AST node representing the return of this :def."]
           ;^:optional
           ;[:doc "The docstring for this var"]
-          #_
-          [:id "A numeric id for this var, will be the same for every instance of this var inside the same compilation unit"]]}
+          ]}
   {:op   :defrecord
    :doc  "Node for a defrecord* special-form expression"
    :keys [[:form "`(deftype* name class.name [arg*] :implements [interface*] method*)`"]
@@ -217,7 +218,7 @@
    :doc  "Node for a local symbol"
    :keys [[:form "The local symbol"]
           [:name "The uniquified local symbol"]
-          #_[:local "One of :arg, :catch, :fn, :let, :letfn, :loop, :field or :this"]
+          [:local "One of :arg, :catch, :fn, :let, :letfn, :loop, :field or :this"]
           ]}
   {:op   :loop
    :doc  "Node a loop* special-form expression"
@@ -281,7 +282,13 @@
   {:op   :the-var
    :doc  "Node for a var special-form expression"
    :keys [[:form "`(var var-name)`"]
-          [:var "The Var object this expression refers to"]]}
+          ^:children
+          [:var "A :var AST node that this expression refers to"]
+          ^:children
+          [:sym "An AST node for the quoted fully qualified name of this var."]
+          ^:children
+          [:meta "A :map AST node of this var's metadata."]
+          ]}
   {:op   :throw
    :doc  "Node for a throw special-form statement"
    :keys [[:form "`(throw exception)`"]
@@ -301,7 +308,8 @@
   {:op   :var
    :doc  "Node for a var symbol"
    :keys [[:form "A symbol naming the var"]
-          [:var "The Var object this symbol refers to"]
+          [:ns "The namespace symbol this var is defined in."]
+          [:name "The name symbol of this var."]
           ]}
   {:op   :vector
    :doc  "Node for a vector literal with attached metadata and/or non literal elements"

@@ -438,8 +438,9 @@
     (is (= (e/with-compiler-env (atom {::a/namespaces
                                        {'foo.core {:renames '{foo clojure.set/intersection}}}})
              (a/resolve-var {:ns {:name 'foo.core}} 'foo))
-            '{:name clojure.set/intersection
-              :ns   clojure.set}))
+            '{:name intersection
+              :ns   clojure.set
+              :op  :var}))
     (let [rwhen (e/with-compiler-env (atom (update-in @test-cenv [::a/namespaces]
                                              merge {'foo.core {:rename-macros '{always cljs.core/when}}}))
                   (a/resolve-macro-var {:ns {:name 'foo.core}} 'always))]
@@ -613,11 +614,11 @@
   (let [parsed (e/with-compiler-env test-cenv
                  (a/analyze (assoc test-env :def-emits-var true)
                    '(def x 1)))]
-    (is (some? (:var-ast parsed))))
+    (is (some? (:the-var parsed))))
   (let [parsed (e/with-compiler-env test-cenv
                  (a/analyze (assoc test-env :def-emits-var true)
                    '(let [y 1] (def y 2))))]
-    (is (some? (-> parsed :body :ret :var-ast)))))
+    (is (some? (-> parsed :body :ret :the-var)))))
 
 (defn ana' [form]
   (e/with-compiler-env test-cenv
@@ -639,7 +640,8 @@
   (is (= (-> (ana 1) juxt-op-val) [:const 1]))
   (is (= (:op (ana '(1 2 3))) :quote))
   ;variables
-  (is (= (:op (ana inc)) :var))
+  (is (= [:var 'cljs.core 'inc 'inc] (-> (ana inc) ((juxt :op :ns :name :form)))))
+  (is (= [:var 'cljs.core 'inc 'cljs.core/inc] (-> (ana cljs.core/inc) ((juxt :op :ns :name :form)))))
   ;do
   (is (= (-> (ana (do 1 2)) :op) :do))
   (is (= (-> (ana (do 1 2)) :children) [:statements :ret]))
@@ -667,9 +669,18 @@
   ;local
   (is (empty? (-> (ana (let [a 1] a)) :body :ret :children)))
   (is (= (-> (ana (let [a 1] a)) :body :ret :op) :local))
+  (is (= (-> (ana (let [a 1] a)) :body :ret :name) 'a))
+  (is (= (-> (ana (let [a 1] a)) :body :ret :form) 'a))
+  (is (map? (-> (ana (let [a 1] a)) :body :ret :env)))
   ;local shadow
-  (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret :op))
-         :local))
+  (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body 
+                        :env :locals
+                        (get 'alert)
+                        :name))
+         'alert))
+  (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret 
+                        ((juxt :op :name :ns))))
+         [:local 'alert nil]))
   (comment
     (-> (ana (let [a 1] a)) :body :ret :env :locals clojure.pprint/pprint)
     (-> (ana (let [alert js/alert] alert)))
@@ -678,6 +689,7 @@
   (is (= (-> (ana (loop [])) :op) :loop))
   (is (= (-> (ana (loop [a 1])) :bindings first :op) :binding))
   (is (= (-> (ana (loop [a 1] a)) :bindings first :init :op) :const))
+  (is (= (-> (ana (loop [a 1] a)) :body :ret :local) :loop))
   (is (= (-> (ana (loop [a 1] (recur 1))) :children) [:bindings :body]))
   ;recur
   (is (= (-> (ana (loop [a 1] (recur 1))) :body :ret :op) :recur))
@@ -739,24 +751,39 @@
   (is (= [:const 2] (-> (ana (case 1 2)) :body :ret :default juxt-op-val)))
   ;def
   (is (= :def (-> (ana (def a)) :op)))
-  (is (= nil (-> (ana (def a)) :children)))
-  (is (= [:init] (-> (ana (def a 1)) :children)))
-  ;   :name
-  (is (= "a" (-> (ana (def a 1)) :name name)))
+  (is (= [:var] (-> (ana (def a)) :children)))
+  (is (= [:var :init] (-> (ana (def a 1)) :children)))
+  ;   :ns/:name
+  (is (= ['cljs.core 'a] (-> (ana (def a 1)) ((juxt :ns :name)))))
+  ;   :var
+  (is (= [:var 'cljs.core 'a 'a] 
+         (-> (ana (def a 1)) :var
+             ((juxt :op :ns :name :form)))))
   ;   :init
-  (is (= nil (-> (ana (def a)) :init)))
+  (is (-> (ana (def a)) (contains? :init) false?))
   (is (= [:const 1] (-> (ana (def a 1)) :init juxt-op-val)))
+  ;   side effects
+  (is (do (ana (def a 1))
+          (=
+           [:var 'cljs.core 'a]
+           (e/with-compiler-env test-cenv
+             (-> @env/*compiler*
+                 ::a/namespaces
+                 (get 'cljs.core)
+                 :defs
+                 (get 'a)
+                 ((juxt :op :ns :name)))))))
   ;deftype
   (is (= :deftype (-> (ana (deftype A [])) :statements first :op)))
   (is (= [:body] (-> (ana (deftype A [])) :statements first :children)))
   ;   :body
   (is (= :do (-> (ana (deftype A [a] Object (toString [this] a))) :statements first :body :op)))
         ; field reference
-  (is (= [:local true]
+  (is (= [:local true :field]
          (-> (ana (deftype A [a] Object (toString [this] a))) 
              :statements first :body :ret :val :methods
              first :body :ret :body :ret 
-             ((juxt :op (comp :field :info))))))
+             ((juxt :op (comp :field :info) :local)))))
   ;defrecord
   (is (= :defrecord (-> (ana (defrecord Ab [])) :body :statements first :ret :op)))
   (is (= [:body] (-> (ana (defrecord Ab [])) :body :statements first :ret :children)))
@@ -862,15 +889,26 @@
              first
              :init
              :op)))
+  (is (= :arg
+         (-> (ana (letfn [(my-inc [a] a)]
+                    (my-inc 1)))
+             :bindings
+             first
+             :init
+             :methods
+             first
+             :body
+             :ret
+             :local)))
   ;   :body
   (is (= :invoke
          (-> (ana (letfn [(my-inc [a] (inc a))]
                     (my-inc 1)))
              :body :ret :op)))
-  (is (= :local
+  (is (= [:local :letfn]
          (-> (ana (letfn [(my-inc [a] (inc a))]
                     (my-inc 1)))
-             :body :ret :fn :op)))
+             :body :ret :fn ((juxt :op :local)))))
   ;map
   (is (= :map (-> (ana {:a 1}) :op)))
   (is (= [:keys :vals] (-> (ana {:a 1}) :children)))
@@ -892,11 +930,11 @@
              :ret
              :children)))
   ;   :ctor
-  (is (= [:var 'cljs.core/Person]
+  (is (= [:var 'cljs.core 'Person]
          (-> (ana (do (deftype Person [a]) (Person. 1)))
              :ret
              :ctor
-             ((juxt :op (comp :name :info))))))
+             ((juxt :op :ns :name)))))
   ;   :args
   (is ((every-pred vector? empty?)
          (-> (ana (do (deftype Noarg []) (Noarg.)))
@@ -924,25 +962,30 @@
          (-> (ana (do (def a 1) (set! a "Hi!")))
              :ret :children)))
   ;   :target
-  (is (= [:var 'cljs.core/a]
+  (is (= [:var 'cljs.core 'a]
          (-> (ana (do (def a 1) (set! a "Hi!")))
-             :ret :target ((juxt :op (comp :name :info))))))
+             :ret :target ((juxt :op :ns :name)))))
   ;   :val
   (is (= [:const "Hi!"]
          (-> (ana (do (def a 1) (set! a "Hi!")))
              :ret :val juxt-op-val)))
   ;the-var
   (is (= :the-var (-> (ana #'+) :op)))
-  (is (nil? (-> (ana #'+) :children)))
+  (is (= [:var :sym :meta] (-> (ana #'+) :children)))
   ;   :var
-  (is (= 'cljs.core/+ (-> (ana #'+) :var :info :name)))
+  (is (= [:var 'cljs.core '+]
+         (-> (ana #'+) :var ((juxt :op :ns :name)))))
+  ;   :sym
+  (is (= 'cljs.core/+ (-> (ana #'+) :sym :expr :val)))
+  ;   :meta
+  (is (= :map (-> (ana #'+) :meta :op)))
   ;throw
   (is (= :throw (-> (ana (throw (js/Error. "bad"))) :op)))
   (is (= [:exception] (-> (ana (throw (js/Error. "bad"))) :children)))
   ;   :exception
-  (is (= [:var 'js/Error] (-> (ana (throw (js/Error. "bad"))) :exception 
-                              :ctor
-                              ((juxt :op (comp :name :info))))))
+  (is (= [:js-var 'js 'Error] (-> (ana (throw (js/Error. "bad"))) :exception 
+                                  :ctor
+                                  ((juxt :op :ns :name)))))
   ;vector
   (is (= :vector (-> (ana [1]) :op)))
   (is (= [:items] (-> (ana [1]) :children)))
@@ -987,6 +1030,20 @@
   (is (= 'quote (-> (ana (quote a)) :form first)))
   ;   :expr
   (is (= [:const 'a] (-> (ana (quote a)) :expr juxt-op-val)))
+  ;js-var
+  (is (= :js-var (-> (ana js/console) :op)))
+  (is (= 'console (-> (ana js/console) :name)))
+  (is (= 'js (-> (ana js/console) :ns)))
+  (is (map? (-> (ana js/console) :env)))
+  (is (= 'js/-Infinity (-> (ana js/-Infinity) :form)))
+  ;munging
+  (is [false 'a]
+      (-> 
+        (ana (let [a (println 1)
+                   b (println 2)]
+               [a b]))
+        :bindings first 
+        ((juxt #(contains? % :ns) :name))))
 )
 
 (deftest quote-args-error-test
