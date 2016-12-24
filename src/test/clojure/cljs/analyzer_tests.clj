@@ -1145,17 +1145,17 @@
                     [goog.string])
           (:import [goog.string StringBuffer]))))))
   ;nested metadata
-  (is (= ''#{a}
+  (is (= :DFASDFADF
         (-> (ana ''#{^:DFASDFADF a})
           :expr
-          :val)))
-  (is (= {:DFASDFADF true}
-        (-> (ana ''#{^:DFASDFADF a})
-          :expr
-          :val
+          :items
           second
+          :items
           first
-          meta)))
+          :meta
+          :keys
+          first
+          :val)))
   (is (binding [test-cenv (atom (assoc-in @test-cenv
                                      [:options :emit-constants]
                                      true))]

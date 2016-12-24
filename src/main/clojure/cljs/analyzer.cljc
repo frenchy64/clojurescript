@@ -3122,11 +3122,10 @@
 
 (defn analyze-list
   [env form]
-  ; register keyword/symbol constants
-  (run! #(analyze env %) form)
-  (analyze-wrap-meta 
-    {:op :const :env env :form form 
-     :val form :tag 'cljs.core/IList}))
+  (let [expr-env (assoc env :context :expr)
+        items (disallowing-recur (mapv #(analyze expr-env %) form))]
+    (analyze-wrap-meta {:op :list :env env :form form :items items 
+                        :children [:items] :tag 'cljs.core/IList})))
 
 (defn analyze-vector
   [env form]

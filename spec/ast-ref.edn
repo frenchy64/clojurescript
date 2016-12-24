@@ -204,6 +204,11 @@
            [:bindings "A vector of :binding AST nodes with :local :letfn"]
            ^:children
            [:body "Synthetic :do node (with :body? `true`) representing the body of the letfn expression"]]}
+  {:op   :list
+   :doc  "Node for a list literal."
+   :keys [[:form "`(item*)`"]
+          ^:children
+          [:items "A vector of AST nodes representing the items of the list"]]}
   {:op   :local
    :doc  "Node for a local symbol"
    :keys [[:form "The local symbol"]

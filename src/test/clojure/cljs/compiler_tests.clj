@@ -266,6 +266,22 @@
   (is (binding [cenv (atom (assoc-in @cenv 
                                      [:options :emit-constants]
                                      true))]
+        (em (prn '^int a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^{asdfasdf :asfd} a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^{:asdfasdf asfd} a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
+        (em (prn '^:file a))))
+  (is (binding [cenv (atom (assoc-in @cenv 
+                                     [:options :emit-constants]
+                                     true))]
         (em (prn ['^:file a]))))
   (is (binding [cenv (atom (assoc-in @cenv 
                                      [:options :emit-constants]
