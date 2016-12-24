@@ -213,6 +213,7 @@
    :cljs
    (defmulti -emit-constant type))
 
+; only call -emit-constant from emit-constant.
 (defn emit-constant [expr]
   (if (meta expr)
     (emits "cljs.core.with_meta(" 
@@ -340,12 +341,16 @@
 (defmethod -emit-constant #?(:clj clojure.lang.Keyword :cljs Keyword) [x]
   (if (-> @env/*compiler* :options :emit-constants)
     (let [value (-> @env/*compiler* ::ana/constant-table x)]
+      (assert (symbol? value)
+              (pr-str value))
       (emits "cljs.core." value))
     (emits-keyword x)))
 
 (defmethod -emit-constant #?(:clj clojure.lang.Symbol :cljs Symbol) [x]
   (if (-> @env/*compiler* :options :emit-constants)
     (let [value (-> @env/*compiler* ::ana/constant-table x)]
+      (assert (symbol? value)
+              (pr-str value))
       (emits "cljs.core." value))
     (emits-symbol x)))
 

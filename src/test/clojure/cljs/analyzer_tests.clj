@@ -172,7 +172,7 @@
 ;; =============================================================================
 ;; Inference tests
 
-(def test-cenv (atom {}))
+(def ^:dynamic test-cenv (atom {}))
 (def test-env (assoc-in (a/empty-env) [:ns :name] 'cljs.core))
 
 (a/no-warn
@@ -1144,6 +1144,23 @@
                     [clojure.string]
                     [goog.string])
           (:import [goog.string StringBuffer]))))))
+  ;nested metadata
+  (is (= ''#{a}
+        (-> (ana ''#{^:DFASDFADF a})
+          :expr
+          :val)))
+  (is (= {:DFASDFADF true}
+        (-> (ana ''#{^:DFASDFADF a})
+          :expr
+          :val
+          second
+          first
+          meta)))
+  (is (binding [test-cenv (atom (assoc-in @test-cenv
+                                     [:options :emit-constants]
+                                     true))]
+        (-> (ana :asdfs)
+            :op)))
     )
 
 (deftest quote-args-error-test

@@ -576,7 +576,9 @@
   (is (= (meta (with-meta 'foo {:tag 'int})) {:tag 'int}))
   (is (= (meta (quote ^{:bar true} foo)) {:bar true}))
   (is (= (meta (quote ^:bar foo)) {:bar true}))
-  (is (= (meta (first '[^:bar x])) {:bar true})))
+  (is (= (meta (first '[^:bar x])) {:bar true}))
+  (is (= (meta (first '(^:bar x))) {:bar true}))
+  (is (= (meta (first '#{^:bar x})) {:bar true})))
 
 (deftest test-467
   (is (= (reduce-kv + 0 (apply hash-map (range 1000)))

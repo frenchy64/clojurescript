@@ -3122,6 +3122,8 @@
 
 (defn analyze-list
   [env form]
+  ; register keyword/symbol constants
+  (run! #(analyze env %) form)
   (analyze-wrap-meta 
     {:op :const :env env :form form 
      :val form :tag 'cljs.core/IList}))
@@ -3134,7 +3136,7 @@
                         :children [:items] :tag 'cljs.core/IVector})))
 
 (defn analyze-set
-  [env form ]
+  [env form]
   (let [expr-env (assoc env :context :expr)
         items (disallowing-recur (mapv #(analyze expr-env %) form))]
     (analyze-wrap-meta {:op :set :env env :form form :items items 
@@ -3255,6 +3257,9 @@
                    (string? form) 'string
                    (true? form) 'boolean
                    (false? form) 'boolean)]
+         ; register keyword/symbol constants
+         (when (meta form)
+           (analyze env (meta form)))
          (cond-> {:op :const :env env :form form :val form}
            tag (assoc :tag tag))))))
 
@@ -3276,6 +3281,9 @@
                    (string? form) STRING_SYM
                    (true? form) BOOLEAN_SYM
                    (false? form) BOOLEAN_SYM)]
+         ; register keyword/symbol constants
+         (when (meta form)
+           (analyze env (meta form)))
          (cond-> {:op :const :env env :form form :val form}
            tag (assoc :tag tag))))))
 
