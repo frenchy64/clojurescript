@@ -231,9 +231,11 @@
                  (catch :default e 1)))))
   (is (em (println (case 1 :a 2))))
   (is (em (println (quote a))))
+  (is (em (println (quote ^:foo a))))
+  (is (em (println (quote ^::foo a))))
   (is (em (println +)))
-  (is (em (println
-            (quote ^:foo a))))
+  (is (em (let [a (println 1)]
+            a)))
   (is (em (let [a (println 1)
                 b (println 2)]
             [a b])))
@@ -248,11 +250,24 @@
             (let [a 1 a 2]
               [a]))))
   (is (em (println js/console)))
+  (is (em (println {:a 1})))
   (is (em 
         (deftype A [a] Object (toString [this1232] a))))
   (is (em 
         (defrecord B [a] Object (toString [this] a))))
+  (is (em (prn ''{1 2})))
+  (is (em (prn ''^:foo [])))
+  (is (em (prn ''[1 2])))
+  (is (em (prn ''#{^:DFASDFADF a})))
+  (is (em (prn '''())))
   (is (em (print #'+)))
+  (is (binding [ana/*cljs-ns* 'cljs.core]
+      (binding [ana/*analyze-deps* false]
+        (em (ns foo.my.ns
+              (:require [clojure.repl]
+                        [clojure.string]
+                        [goog.string])
+              (:import [goog.string StringBuffer]))))))
   )
 
 (comment

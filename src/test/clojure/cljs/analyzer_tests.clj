@@ -8,6 +8,7 @@
 
 (ns cljs.analyzer-tests
   (:require [clojure.java.io :as io]
+            [clojure.set :as set]
             [cljs.analyzer :as a]
             [cljs.env :as e]
             [cljs.env :as env]
@@ -637,8 +638,12 @@
 
 (deftest analyze-ops
   ;constants
+  (is (empty? (-> (ana 1) :children)))
   (is (= (-> (ana 1) juxt-op-val) [:const 1]))
-  (is (= (:op (ana '(1 2 3))) :quote))
+  (is (empty? (-> (ana :a) :children)))
+  (is (= (-> (ana :a) juxt-op-val) [:const :a]))
+  (is (= (-> (ana ::a) juxt-op-val) [:const ::a]))
+  (is (= (-> (ana "abc") juxt-op-val) [:const "abc"]))
   ;variables
   (is (= [:var 'cljs.core 'inc 'inc] (-> (ana inc) ((juxt :op :ns :name :form)))))
   (is (= [:var 'cljs.core 'inc 'cljs.core/inc] (-> (ana cljs.core/inc) ((juxt :op :ns :name :form)))))
@@ -681,10 +686,6 @@
   (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret 
                         ((juxt :op :name :ns))))
          [:local 'alert nil]))
-  (comment
-    (-> (ana (let [a 1] a)) :body :ret :env :locals clojure.pprint/pprint)
-    (-> (ana (let [alert js/alert] alert)))
-    )
   ;loop
   (is (= (-> (ana (loop [])) :op) :loop))
   (is (= (-> (ana (loop [a 1])) :bindings first :op) :binding))
@@ -783,7 +784,7 @@
          (-> (ana (deftype A [a] Object (toString [this] a))) 
              :statements first :body :ret :val :methods
              first :body :ret :body :ret 
-             ((juxt :op (comp :field :info) :local)))))
+             ((juxt :op :field :local)))))
   ;defrecord
   (is (= :defrecord (-> (ana (defrecord Ab [])) :body :statements first :ret :op)))
   (is (= [:body] (-> (ana (defrecord Ab [])) :body :statements first :ret :children)))
@@ -792,6 +793,33 @@
   ;fn
   (is (= :fn (-> (ana (fn [])) :op)))
   (is (= [:methods] (-> (ana (fn [])) :children)))
+  (is (= [:local :methods] (-> (ana (fn a [])) :children)))
+  ;   :local
+  (is (-> (ana (fn [])) (contains? :local) false?))
+  (is (=
+       [:local 'b :fn]
+       (-> (ana (fn b [& a]))
+           :local
+           ((juxt :op :name :local)))))
+  (is (=
+       [:local 'b :fn]
+       (-> (ana (fn b [] b))
+           :methods
+           first
+           :body
+           :ret
+           ((juxt :op :name :local)))))
+  (is (=
+       [:local 'b :fn]
+       (-> (ana (fn b [] b))
+           :methods
+           first
+           :body
+           :ret
+           :env
+           :locals
+           (get 'b)
+           ((juxt :op :name :local)))))
   ;   :variadic
   (is (true? (-> (ana (fn [& a])) :variadic)))
   (is (false? (-> (ana (fn [])) :variadic)))
@@ -800,7 +828,8 @@
   (is (vector? (-> (ana (fn ([]) ([a]))) :methods)))
   ;fn-method
   (is (= :fn-method (-> (ana (fn [])) :methods first :op)))
-  (is (= [:body] (-> (ana (fn [])) :methods first :children)))
+  (is (= [:params :body] (-> (ana (fn [])) :methods first :children)))
+  (is (= [:params :body] (-> (ana (fn [a])) :methods first :children)))
   ;   :max-fixed-arity
   (is (= 0 (-> (ana (fn [])) :methods first :max-fixed-arity)))
   (is (= 1 (-> (ana (fn [a])) :methods first :max-fixed-arity)))
@@ -810,7 +839,17 @@
   (is (false? (-> (ana (fn [a b])) :variadic)))
   ;   :body
   (is (= [:const 1] (-> (ana (fn [] 1)) :methods first :body :ret juxt-op-val)))
-    ;FIXME add tests for :fn-method :params
+  ;   :params
+  (is (vector?
+         (-> (ana (fn [])) :methods first :params)))
+  (is (vector?
+         (-> (ana (fn [a b])) :methods first :params)))
+  (is (= [:binding 'a :arg] 
+         (-> (ana (fn [a b])) :methods first :params
+             first ((juxt :op :name :local)))))
+  (is (= [:binding 'b :arg] 
+         (-> (ana (fn [a b])) :methods first :params
+             second ((juxt :op :name :local)))))
   ;if
   (is (= :if (-> (ana (if 1 2)) :op)))
   (is (= :if (-> (ana (if 1 2 3)) :op)))
@@ -979,6 +1018,30 @@
   (is (= 'cljs.core/+ (-> (ana #'+) :sym :expr :val)))
   ;   :meta
   (is (= :map (-> (ana #'+) :meta :op)))
+  (is (empty?
+        ; ensure at least these entries are present
+        (set/difference
+          #{:name :tag :arglists
+            :line :column :end-line :end-column
+            :ns :file :doc :test :top-fn}
+          (->> (ana #'+) :meta :keys (map :val)))))
+  (run!
+    (fn [[k v]]
+        ; ensure entries map to sane things
+      (case (:val k)
+        :name (is (= '+ (-> v :expr :val)))
+        :tag (is (= 'number (-> v :expr :val)))
+        :arglists (is (= :quote (:op v)))
+        ;:row (is (= :quote (:op v)))
+        (:line :column :end-line :end-column) (number? (:val v))
+        :ns (is (symbol? (-> v :expr :val)))
+        :file (is (string? (-> v :expr :val)))
+        :doc (is (string? (-> v :expr :val)))
+        :test (is (= :if (:op v)))
+        :top-fn (is (= :map (:op (:expr v))))
+        ;default
+        nil))
+    (apply zipmap (-> (ana #'+) :meta ((juxt :keys :vals)))))
   ;throw
   (is (= :throw (-> (ana (throw (js/Error. "bad"))) :op)))
   (is (= [:exception] (-> (ana (throw (js/Error. "bad"))) :children)))
@@ -996,12 +1059,16 @@
   ;with-meta
   (is (= :with-meta (-> (ana ^:blah (fn [])) :op)))
   (is (= [:meta :expr] (-> (ana ^:blah (fn [])) :children)))
+  (is (= :with-meta (-> (ana '^:foo a) :expr :op)))
   ;   :meta
   (is (= :map (-> (ana ^:blah (fn [])) :meta :op)))
   (is (= [:const :blah] (-> (ana ^:blah (fn [])) :meta :keys first juxt-op-val)))
   (is (= [:const true] (-> (ana ^:blah (fn [])) :meta :vals first juxt-op-val)))
+  (is (= [:const :foo] (-> (ana '^:foo a) :expr :meta :keys first juxt-op-val)))
+  (is (= [:const true] (-> (ana '^:foo a) :expr :meta :vals first juxt-op-val)))
   ;   :expr
   (is (= :fn (-> (ana ^:blah (fn [])) :expr :op)))
+  (is (= :const (-> (ana '^:foo a) :expr :expr :op)))
   ;host-field
   (is (= :host-field (-> (ana (.-field 'a)) :op)))
   (is (= [:target] (-> (ana (.-field 'a)) :children)))
@@ -1028,6 +1095,7 @@
   (is (= [:expr] (-> (ana (quote a)) :children)))
   (is (map? (-> (ana (quote a)) :env)))
   (is (= 'quote (-> (ana (quote a)) :form first)))
+  (is (= (:op (ana '(1 2 3))) :quote))
   ;   :expr
   (is (= [:const 'a] (-> (ana (quote a)) :expr juxt-op-val)))
   ;js-var
@@ -1044,7 +1112,39 @@
                [a b]))
         :bindings first 
         ((juxt #(contains? % :ns) :name))))
-)
+  ;shadowing
+  (is (=
+       'a
+       (-> 
+         (ana (let [a (println 1)
+                    a (println 2)]
+                [a a]))
+         :bindings second 
+         :shadow
+         :name)))
+  (is (=
+       'a
+       (-> 
+         (ana (let [a (println 1)
+                    a (println 2)
+                    a (println 3)
+                    ]
+                [a a a]))
+         :bindings (nth 2) 
+         :shadow
+         :shadow
+         :name)))
+  ;ns
+  (is 
+    (binding [a/*analyze-deps* false]
+    (binding [a/*cljs-ns* 'cljs.user]
+      (ana 
+        (ns my.ns.foo
+          (:require [clojure.repl]
+                    [clojure.string]
+                    [goog.string])
+          (:import [goog.string StringBuffer]))))))
+    )
 
 (deftest quote-args-error-test
   (is (.startsWith

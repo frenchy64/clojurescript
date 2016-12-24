@@ -25,11 +25,11 @@
           [:name "The binding symbol"]
           [:local "One of :arg, :catch, :fn, :let, :letfn, :loop or :field"]
           ;^:optional
-          ;[:arg-id "When :local is :arg, the parameter index"]
-          ;^:optional
           ;[:variadic? "When :local is :arg, a boolean indicating whether this parameter binds to a variable number of arguments"]
           ^:optional ^:children
           [:init "When :local is :let, :letfn or :loop, an AST node representing the bound value"]
+          ^:optional ;^:children
+          [:shadow "When this binding shadows another local binding, an AST node representing the shadowed local"]
           ]}
   {:op   :case
    :doc  "Node for a case* special-form expression"
@@ -119,27 +119,17 @@
    :keys [[:form "`(fn* name? [arg*] body*)` or `(fn* name? method*)`"]
           [:variadic "`true` if this function contains a variadic arity method"]
           [:max-fixed-arity "The number of arguments taken by the fixed-arity method taking the most arguments"]
-          #_#_
-          [:internal-name "The internal name symbol used for the fn"]
-          [:class-id "A unique id representing this function"]
           ^:optional ^:children
           [:local "A :binding AST node with :local :fn representing the function's local name, if one is supplied"]
           ^:children
           [:methods "A vector of :fn-method AST nodes representing the fn method arities"]
-          [:once "`true` if the fn is marked as `^:once fn*`, meaning it will only be executed once and thus allowing for the clearing of closed-over locals"]
-          #_#_#_#_
-          [:closed-overs "A map of uniquified local name -> :binding AST node of the local, containing all the locals closed-over by this fn"]
-          [:protocol-callsites "A map of protocol Vars that appear in the bodies of the fn methods"]
-          [:keyword-callsites "A map of keywords that appear in keyword-invoke position in the bodies of the fn methods"]
-          [:constants "A map of the constants that appear in the bodies of the fn methods. The mapping is from a map with :form, :meta and :tag fields to a map with :id, :tag :val and :type fields, the :id will be the same for all every instance of this constant inside the same compilation unit."]]}
+          ]}
   {:op   :fn-method
    :doc  "Node for an arity method in a fn* expression"
    :keys [[:form "`([arg*] body*)`"]
-          ;[:loop-id "Unique symbol identifying this method as a target for recursion"]
           [:variadic "`true` if this fn-method takes a variable number of arguments"]
-          ;FIXME :params
-          ;^:children
-          [:params "A vector of symbols representing the method parameters" #_"A vector of :binding AST nodes with :local :arg representing this fn-method args"]
+          ^:children
+          [:params "A vector of :binding AST nodes with :local :arg representing this fn-method args"]
           [:max-fixed-arity "The number of non-variadic args this fn-method takes"]
           ^:children
           [:body "Synthetic :do node (with :body? `true`) representing the body of this fn-method"]]}
@@ -254,7 +244,6 @@
    :doc  "Node for a special file-loading form."
    :keys [
           ]}
-;;TODO
   {:op   :quote
    :doc  "Node for a quote special-form expression"
    :keys [[:form "`(quote expr)`"]
@@ -265,8 +254,7 @@
    :doc  "Node for a recur special-form expression"
    :keys [[:form "`(recur expr*)`"]
           ^:children
-          [:exprs "A vector of AST nodes representing the new bound values for the loop binding on the next loop iteration"]
-          [:loop-id "Unique symbol identifying the enclosing loop target"]]}
+          [:exprs "A vector of AST nodes representing the new bound values for the loop binding on the next loop iteration"]]}
   {:op   :set
    :doc  "Node for a set literal with attached metadata and/or non literal elements"
    :keys [[:form "`#{item*}`"]

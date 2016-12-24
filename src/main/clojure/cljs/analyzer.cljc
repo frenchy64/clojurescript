@@ -1166,7 +1166,7 @@
                                                      arglists)]
                                     (list 'quote
                                       (doall (map with-meta arglists'
-                                               (:arglists-meta var)))))))]
+                                                  (:arglists-meta var)))))))]
               (analyze expr-env m))})))
 
 (defmethod parse 'var
@@ -1523,7 +1523,7 @@
      :form form
      :body expr
      :recurs recurs
-     :children [:body]}))
+     :children [:params :body]}))
 
 (declare analyze-wrap-meta)
 
@@ -1534,7 +1534,13 @@
           shadow   (when (nil? shadow)
                      (get-in env [:js-globals name]))
           fn-scope (:fn-scope env)
-          name-var {:name name
+          name-var {:op :local
+                    :name name
+                    :local :fn
+                    :fn-self-name true
+                    :fn-scope fn-scope
+                    ;:ns ns
+                    :shadow shadow
                     :info {:fn-self-name true
                            :fn-scope fn-scope
                            :ns ns
@@ -1601,21 +1607,24 @@
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
-        children     (mapv :expr methods)
-        ast          {:op :fn
-                      :env env
-                      :form form
-                      :name name-var
-                      :methods methods
-                      :variadic variadic
-                      :tag 'function
-                      :recur-frames *recur-frames*
-                      :loop-lets *loop-lets*
-                      :jsdoc [js-doc]
-                      :max-fixed-arity mfa
-                      :protocol-impl proto-impl
-                      :protocol-inline proto-inline
-                      :children [:methods]}]
+        ast          (merge
+                       {:op :fn
+                        :env env
+                        :form form
+                        :methods methods
+                        :variadic variadic
+                        :tag 'function
+                        :recur-frames *recur-frames*
+                        :loop-lets *loop-lets*
+                        :jsdoc [js-doc]
+                        :max-fixed-arity mfa
+                        :protocol-impl proto-impl
+                        :protocol-inline proto-inline}
+                       (when name-var
+                         {:local name-var})
+                       (cond
+                         name-var {:children [:local :methods]}
+                         :else {:children [:methods]}))]
     (let [variadic-methods (filter :variadic methods)
           variadic-params  (count (:params (first variadic-methods)))
           param-counts     (map (comp count :params) methods)]
@@ -2586,7 +2595,8 @@
   (let [t (:name (resolve-var (dissoc env :locals) tsym))
         locals (reduce (fn [m fld]
                          (assoc m fld
-                                {:name fld
+                                {:op :local
+                                 :name fld
                                  :line (get-line fld env)
                                  :column (get-col fld env)
                                  :local :field
@@ -3112,7 +3122,9 @@
 
 (defn analyze-list
   [env form]
-  (analyze-wrap-meta {:op :const :env env :form form :val form :tag 'cljs.core/IList}))
+  (analyze-wrap-meta 
+    {:op :const :env env :form form 
+     :val form :tag 'cljs.core/IList}))
 
 (defn analyze-vector
   [env form]
