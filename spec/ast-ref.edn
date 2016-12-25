@@ -188,8 +188,9 @@
   {:op   :js-var
    :doc  "Node for a js-var symbol"
    :keys [[:form "A symbol naming the js-var in the form: `js/foo`, `js-ns/foo` or `js-var`"]
-          [:var "The js-var object this symbol refers to, if `:form` is in the form `js/foo`, `:ns` will be nil"]
-          [:assignable? "`true`"]]}
+          [:ns "The namespace symbol for this js-var."]
+          [:name "The fully qualified symbol naming this js-var."]
+          ]}
   {:op   :let
    :doc  "Node for a let* special-form expression"
    :keys  [[:form "`(let* [binding*] body*)`"]
@@ -302,7 +303,7 @@
    :doc  "Node for a var symbol"
    :keys [[:form "A symbol naming the var"]
           [:ns "The namespace symbol this var is defined in."]
-          [:name "The name symbol of this var."]
+          [:name "The fully qualified symbol naming this var."]
           ]}
   {:op   :vector
    :doc  "Node for a vector literal with attached metadata and/or non literal elements"

@@ -78,7 +78,7 @@
                (:info (ana/analyze {:ns {:name 'cljs.core}} 'cljs.core/..))))))))
 
 (deftest test-resolve-dotdot
-  (is (= '{:name ..
+  (is (= '{:name cljs.core/..
            :ns   cljs.core
            :op :var}
          (ana/no-warn

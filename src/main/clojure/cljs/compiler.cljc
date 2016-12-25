@@ -88,14 +88,9 @@
    (if #?(:clj  (map? s)
           :cljs (ana/cljs-map? s))
      (let [name-var s
-           name     (symbol (some-> (:ns name-var) str)
-                            (str (:name name-var)))
+           name     (:name name-var)
            field    (:field name-var)
            info     (:info name-var)]
-       (assert (nil? (some-> (:ns name-var) namespace)))
-       (assert (nil? (namespace (:name name-var))))
-       (assert (= (some-> (:ns name-var) str)
-                  (namespace name)))
        (if-not (nil? (:fn-self-name info))
          (fn-self-name s)
          ;; Unshadowing
@@ -169,7 +164,7 @@
                 (let [minfo (cond-> {:gcol (:gen-col m)
                                      :gline (:gen-line m)}
                               (#{:var :js-var :local} (:op ast))
-                              (assoc :name (str (:ns ast) (:name ast))))]
+                              (assoc :name (str (-> ast :info :name))))]
                   ; Dec the line/column numbers for 0-indexing.
                   ; tools.reader uses 1-indexed sources, chrome
                   ; expects 0-indexed source maps.
@@ -294,16 +289,14 @@
 (defmethod emit-constant #?(:clj clojure.lang.Keyword :cljs Keyword) [x]
   (if (-> @env/*compiler* :options :emit-constants)
     (let [value (-> @env/*compiler* ::ana/constant-table x)]
-      (assert (symbol? value)
-              (pr-str value))
+      (assert (symbol? value) (pr-str value))
       (emits "cljs.core." value))
     (emits-keyword x)))
 
 (defmethod emit-constant #?(:clj clojure.lang.Symbol :cljs Symbol) [x]
   (if (-> @env/*compiler* :options :emit-constants)
     (let [value (-> @env/*compiler* ::ana/constant-table x)]
-      (assert (symbol? value)
-              (pr-str value))
+      (assert (symbol? value) (pr-str value))
       (emits "cljs.core." value))
     (emits-symbol x)))
 
@@ -328,7 +321,7 @@
 (defn emit-var
   [{:keys [env form] :as arg}]
   (let [var-name (:name arg)
-        arg (if (= (str (:ns arg)) "js")
+        arg (if (= (namespace var-name) "js")
               (let [js-module-name (get-in @env/*compiler* [:js-module-index (name var-name)])]
                 (or js-module-name (name var-name)))
               arg)]

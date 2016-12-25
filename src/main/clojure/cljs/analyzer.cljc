@@ -850,7 +850,7 @@
                     :form sym
                     :env env)
              {:op :js-var
-              :name nme
+              :name sym
               :form sym
               :ns 'js
               :tag (with-meta 'js {:prefix pre})})))
@@ -875,8 +875,9 @@
                  (confirm-ns env full-ns))
                (confirm env full-ns (symbol (name sym))))
              (merge (gets @env/*compiler* ::namespaces full-ns :defs (symbol (name sym)))
-               {:name (symbol (name sym))
+               {:name (symbol (str full-ns) (str (name sym)))
                 :ns full-ns
+                :form sym
                 :op :var}))
 
            #?(:clj  (and (.contains s ".")
@@ -895,17 +896,17 @@
                      _ (assert (symbol? cur-ns))
                      full-ns (gets @env/*compiler* ::namespaces cur-ns :imports prefix)]
                  (if-not (nil? full-ns)
-                   {:name (symbol suffix)
+                   {:name (symbol (str full-ns) suffix)
                     :ns full-ns
                     :op :js-var}
                    (let [info (gets @env/*compiler* ::namespaces cur-ns :defs prefix)]
                      (if-not (nil? info)
                        (merge info
-                         {:name sym
+                         {:name (symbol (str cur-ns) (str sym))
                           :ns cur-ns
                           :op :var})
                        (merge (gets @env/*compiler* ::namespaces prefix :defs (symbol suffix))
-                         {:name (symbol suffix)
+                         {:name (if (= "" prefix) (symbol suffix) (symbol (str prefix) suffix))
                           :ns prefix
                           :op :var})))))))
 
@@ -914,7 +915,7 @@
              (assert (symbol? full-ns))
              (merge
                (gets @env/*compiler* ::namespaces full-ns :defs sym)
-               {:name sym
+               {:name (symbol (str full-ns) (str sym))
                 :ns full-ns
                 :op :var}))
 
@@ -924,7 +925,7 @@
                  sym     (symbol (name qualified-symbol))]
              (merge
                (gets @env/*compiler* ::namespaces full-ns :defs sym)
-               {:name sym
+               {:name qualified-symbol
                 :ns full-ns
                 :op :var}))
 
@@ -941,7 +942,7 @@
              (when-not (nil? confirm)
                (confirm env full-ns sym))
              (merge (gets @env/*compiler* ::namespaces full-ns :defs sym)
-               {:name sym
+               {:name (symbol (str full-ns) (str sym))
                 :ns full-ns
                 :op :var}))))))))
 )
@@ -1158,7 +1159,7 @@
                          (zipmap uks
                            (map #(list 'quote (get user-meta %)) uks)))
                        (assoc (zipmap ks (map #(list 'quote (get var %)) ks))
-                         :name `(quote ~(:name var))
+                         :name `(quote ~(symbol (name (:name var))))
                          :test `(when ~sym (.-cljs$lang$test ~sym))
                          :arglists (let [arglists (:arglists var)
                                          arglists' (if (= 'quote (first arglists))
@@ -1166,7 +1167,7 @@
                                                      arglists)]
                                     (list 'quote
                                       (doall (map with-meta arglists'
-                                                  (:arglists-meta var)))))))]
+                                               (:arglists-meta var)))))))]
               (analyze expr-env m))})))
 
 (defmethod parse 'var
@@ -1370,7 +1371,8 @@
                      conj-to-set sym)
                   (update-in env [:ns :excludes] conj-to-set sym))
                 env)
-          {var-name :name var-ns :ns} (resolve-var (dissoc env :locals) sym)
+          var-name (:name (resolve-var (dissoc env :locals) sym))
+          var-ns (some-> var-name namespace symbol)
           init-expr (when (contains? args :init)
                       (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
                         (merge
@@ -1378,8 +1380,7 @@
                            :name var-name}
                           sym-meta
                           (when dynamic {:dynamic true})
-                          (source-info var-name env)
-                          {:op :var}))
+                          (source-info var-name env)))
                       (disallowing-recur
                         (disallowing-ns*
                           (analyze (assoc env :context :expr) (:init args) sym))))
@@ -1396,8 +1397,8 @@
           (warning :fn-var env {:ns-name ns-name :sym sym})))
       (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
         (merge
-          {:ns var-ns
-           :name var-name}
+          {:name var-name
+           :ns var-ns}
           ;; remove actual test metadata, as it includes non-valid EDN and
           ;; cannot be present in analysis cached to disk - David
           (cond-> sym-meta
@@ -1444,11 +1445,13 @@
          :form form
          :ns var-ns
          :name var-name
-         :var (analyze
-                (-> env (dissoc :locals)
+         :var (assoc
+                (analyze
+                  (-> env (dissoc :locals)
                     (assoc :context :expr)
                     (assoc :def-var true))
-                sym)
+                  sym)
+                :op :var)
          :doc doc
          :jsdoc (:jsdoc sym-meta)}
         (when (some? init-expr)
@@ -3256,9 +3259,6 @@
                    (string? form) 'string
                    (true? form) 'boolean
                    (false? form) 'boolean)]
-         ; register keyword/symbol constants
-         (when (meta form)
-           (analyze env (meta form)))
          (cond-> {:op :const :env env :form form :val form}
            tag (assoc :tag tag))))))
 
@@ -3280,9 +3280,6 @@
                    (string? form) STRING_SYM
                    (true? form) BOOLEAN_SYM
                    (false? form) BOOLEAN_SYM)]
-         ; register keyword/symbol constants
-         (when (meta form)
-           (analyze env (meta form)))
          (cond-> {:op :const :env env :form form :val form}
            tag (assoc :tag tag))))))
 

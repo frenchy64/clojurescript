@@ -439,7 +439,7 @@
     (is (= (e/with-compiler-env (atom {::a/namespaces
                                        {'foo.core {:renames '{foo clojure.set/intersection}}}})
              (a/resolve-var {:ns {:name 'foo.core}} 'foo))
-            '{:name intersection
+            '{:name clojure.set/intersection
               :ns   clojure.set
               :op  :var}))
     (let [rwhen (e/with-compiler-env (atom (update-in @test-cenv [::a/namespaces]
@@ -645,8 +645,8 @@
   (is (= (-> (ana ::a) juxt-op-val) [:const ::a]))
   (is (= (-> (ana "abc") juxt-op-val) [:const "abc"]))
   ;variables
-  (is (= [:var 'cljs.core 'inc 'inc] (-> (ana inc) ((juxt :op :ns :name :form)))))
-  (is (= [:var 'cljs.core 'inc 'cljs.core/inc] (-> (ana cljs.core/inc) ((juxt :op :ns :name :form)))))
+  (is (= [:var 'cljs.core 'cljs.core/inc 'inc] (-> (ana inc) ((juxt :op :ns :name :form)))))
+  (is (= [:var 'cljs.core 'cljs.core/inc 'cljs.core/inc] (-> (ana cljs.core/inc) ((juxt :op :ns :name :form)))))
   ;do
   (is (= (-> (ana (do 1 2)) :op) :do))
   (is (= (-> (ana (do 1 2)) :children) [:statements :ret]))
@@ -755,9 +755,9 @@
   (is (= [:var] (-> (ana (def a)) :children)))
   (is (= [:var :init] (-> (ana (def a 1)) :children)))
   ;   :ns/:name
-  (is (= ['cljs.core 'a] (-> (ana (def a 1)) ((juxt :ns :name)))))
+  (is (= ['cljs.core 'cljs.core/a] (-> (ana (def a 1)) ((juxt :ns :name)))))
   ;   :var
-  (is (= [:var 'cljs.core 'a 'a] 
+  (is (= [:var 'cljs.core 'cljs.core/a 'a] 
          (-> (ana (def a 1)) :var
              ((juxt :op :ns :name :form)))))
   ;   :init
@@ -766,7 +766,7 @@
   ;   side effects
   (is (do (ana (def a 1))
           (=
-           [:var 'cljs.core 'a]
+           [:var 'cljs.core 'cljs.core/a]
            (e/with-compiler-env test-cenv
              (-> @env/*compiler*
                  ::a/namespaces
@@ -969,7 +969,7 @@
              :ret
              :children)))
   ;   :ctor
-  (is (= [:var 'cljs.core 'Person]
+  (is (= [:var 'cljs.core 'cljs.core/Person]
          (-> (ana (do (deftype Person [a]) (Person. 1)))
              :ret
              :ctor
@@ -1001,7 +1001,7 @@
          (-> (ana (do (def a 1) (set! a "Hi!")))
              :ret :children)))
   ;   :target
-  (is (= [:var 'cljs.core 'a]
+  (is (= [:var 'cljs.core 'cljs.core/a]
          (-> (ana (do (def a 1) (set! a "Hi!")))
              :ret :target ((juxt :op :ns :name)))))
   ;   :val
@@ -1012,7 +1012,7 @@
   (is (= :the-var (-> (ana #'+) :op)))
   (is (= [:var :sym :meta] (-> (ana #'+) :children)))
   ;   :var
-  (is (= [:var 'cljs.core '+]
+  (is (= [:var 'cljs.core 'cljs.core/+]
          (-> (ana #'+) :var ((juxt :op :ns :name)))))
   ;   :sym
   (is (= 'cljs.core/+ (-> (ana #'+) :sym :expr :val)))
@@ -1046,7 +1046,7 @@
   (is (= :throw (-> (ana (throw (js/Error. "bad"))) :op)))
   (is (= [:exception] (-> (ana (throw (js/Error. "bad"))) :children)))
   ;   :exception
-  (is (= [:js-var 'js 'Error] (-> (ana (throw (js/Error. "bad"))) :exception 
+  (is (= [:js-var 'js 'js/Error] (-> (ana (throw (js/Error. "bad"))) :exception 
                                   :ctor
                                   ((juxt :op :ns :name)))))
   ;vector
@@ -1099,19 +1099,18 @@
   ;   :expr
   (is (= [:const 'a] (-> (ana (quote a)) :expr juxt-op-val)))
   ;js-var
-  (is (= :js-var (-> (ana js/console) :op)))
-  (is (= 'console (-> (ana js/console) :name)))
-  (is (= 'js (-> (ana js/console) :ns)))
+  (is (= [:js-var 'js/console 'js] (-> (ana js/console) ((juxt :op :name :ns)))))
   (is (map? (-> (ana js/console) :env)))
   (is (= 'js/-Infinity (-> (ana js/-Infinity) :form)))
   ;munging
-  (is [false 'a]
-      (-> 
-        (ana (let [a (println 1)
-                   b (println 2)]
-               [a b]))
-        :bindings first 
-        ((juxt #(contains? % :ns) :name))))
+  (is (=
+       [false 'a]
+       (-> 
+         (ana (let [a (println 1)
+                    b (println 2)]
+                [a b]))
+         :bindings first 
+         ((juxt #(contains? % :ns) :name)))))
   ;shadowing
   (is (=
        'a
@@ -1224,4 +1223,5 @@
         (reduce util/map-merge {}
           (map (comp :externs second)
             (get @test-cenv ::a/namespaces))))))
+
   )
