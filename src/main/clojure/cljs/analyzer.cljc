@@ -1915,8 +1915,6 @@
      :children [:bindings :body]}))
 
 (defn analyze-do-statements* [env exprs]
-  {:pre [(vector? exprs)
-         (<= 1 (count exprs))]}
   (mapv #(analyze (assoc env :context :statement) %) (pop exprs)))
 
 (defn analyze-do-statements [env exprs]
