@@ -74,6 +74,7 @@
 
 ; Helper fn
 (defn shadow-depth [s]
+  #_
   (assert (#{:binding :var :local} (:op s))
           (:op s))
   (let [{:keys [name info]} s]
@@ -84,6 +85,7 @@
         :else d))))
 
 (defn hash-scope [s]
+  #_
   {:pre [(#{:binding :var :local} (:op s))
          (symbol? (:name s))]}
   #?(:clj (hash-combine (hash (:name s)) (shadow-depth s))
