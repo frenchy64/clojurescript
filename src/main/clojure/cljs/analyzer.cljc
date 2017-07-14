@@ -991,13 +991,16 @@
       :js     {:name (symbol
                        (or (gets @env/*compiler* :js-module-index ns)
                            (resolve-ns-alias env ns)))
-               :ns 'js}
+               :ns 'js
+               :op :var}
       :node   {:name (symbol (str current-ns)
                        (munge-node-lib (resolve-ns-alias env ns)))
-               :ns current-ns}
+               :ns current-ns
+               :op :var}
       :global {:name (symbol (str current-ns)
                        (munge-global-export (resolve-ns-alias env ns)))
-               :ns current-ns})))
+               :ns current-ns
+               :op :var})))
 
 (defn resolve-var
   "Resolve a var. Accepts a side-effecting confirm fn for producing
@@ -1104,7 +1107,8 @@
                (confirm env current-ns sym))
              (merge (gets @env/*compiler* ::namespaces current-ns :defs sym)
                {:name (symbol (str current-ns) (str sym))
-                :ns current-ns}))
+                :ns current-ns
+                :op :var}))
 
            (core-name? env sym)
            (do
@@ -1112,7 +1116,8 @@
                (confirm env 'cljs.core sym))
              (merge (gets @env/*compiler* ::namespaces 'cljs.core :defs sym)
                {:name (symbol "cljs.core" (str sym))
-                :ns 'cljs.core}))
+                :ns 'cljs.core
+                :op :var}))
 
            (invokeable-ns? s env)
            (resolve-invokeable-ns s current-ns env)
