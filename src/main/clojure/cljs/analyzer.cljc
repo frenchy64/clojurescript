@@ -1839,7 +1839,6 @@
   (mapv #(analyze-fn-method menv locals % type true) meths))
 
 (defn analyze-fn-methods-pass2 [menv locals type meths]
-  {:post [(vector? %)]}
   (analyze-fn-methods-pass2* menv locals type meths))
 
 (defmethod parse 'fn*
@@ -1888,7 +1887,6 @@
                        ;; lets us optimize self calls
                        (disallowing-ns* (analyze-fn-methods-pass2 menv locals type meths))
                        (vec methods))
-        _ (assert (vector? methods))
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
@@ -1964,7 +1962,6 @@
                      (conj bes be')]))
           [meth-env []] bes)
         expr (analyze (assoc meth-env :context (if (= :expr context) :return context)) `(do ~@exprs))]
-    (assert (vector? bes))
     {:env env :op :letfn :bindings bes :body expr :form form
      :children [:bindings :body]}))
 
