@@ -2011,37 +2011,35 @@
     (analyze-let-body* env context exprs)))
 
 (defn analyze-let
-  [encl-env [_ bindings & exprs :as form] op]
-  {:pre [(or (= :let op)
-             (= :loop op))]}
+  [encl-env [_ bindings & exprs :as form] is-loop]
   (when-not (and (vector? bindings) (even? (count bindings)))
     (throw (error encl-env "bindings must be vector of even number of elements")))
   (let [context      (:context encl-env)
+        op           (if (true? is-loop) :loop :let)
         [bes env]    (analyze-let-bindings encl-env bindings op)
-        recur-frame  (when (= :loop op)
+        recur-frame  (when (true? is-loop)
                        {:params bes :flag (atom nil)})
         recur-frames (if recur-frame
                        (cons recur-frame *recur-frames*)
                        *recur-frames*)
         loop-lets    (cond
-                       (= :loop op) *loop-lets*
+                       (true? is-loop) *loop-lets*
                        (some? *loop-lets*) (cons {:params bes} *loop-lets*))
-        expr         (analyze-let-body env context exprs recur-frames loop-lets)
-        children     (conj (vec (map :init bes)) expr)]
+        expr         (analyze-let-body env context exprs recur-frames loop-lets)]
     {:op op
      :env encl-env
      :bindings bes
-     :body expr
+     :expr expr
      :form form
      :children [:bindings :body]}))
 
 (defmethod parse 'let*
   [op encl-env form _ _]
-  (analyze-let encl-env form :let))
+  (analyze-let encl-env form false))
 
 (defmethod parse 'loop*
   [op encl-env form _ _]
-  (analyze-let encl-env form :loop))
+  (analyze-let encl-env form true))
 
 (defmethod parse 'recur
   [op env [_ & exprs :as form] _ _]
