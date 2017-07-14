@@ -1819,13 +1819,9 @@
           shadow   (when (nil? shadow)
                      (get-in env [:js-globals name]))
           fn-scope (:fn-scope env)
-          name-var {:op :local
-                    :name name
+          name-var {:name name
+                    :op :local
                     :local :fn
-                    :fn-self-name true
-                    :fn-scope fn-scope
-                    ;:ns ns
-                    :shadow shadow
                     :info {:fn-self-name true
                            :fn-scope fn-scope
                            :ns ns
@@ -1974,20 +1970,20 @@
 
 (defmethod parse 'do
   [op env [_ & exprs :as form] _ _]
-  (let [exprs (vec exprs)
-        children [:statements :ret]]
+  (let [statements (analyze-do-statements env exprs)]
     (if (<= (count exprs) 1)
-      (let [ret (analyze env (nth exprs 0 nil))] ;; (do) is (do nil)
+      (let [ret      (analyze env (first exprs))
+            children [:statements :ret]]
         {:op :do
          :env env
          :form form
-         :statements [] :ret ret
+         :statements statements :ret ret
          :children children})
-      (let [statements (analyze-do-statements env exprs)
-            ret-env  (if (= :statement (:context env))
+      (let [ret-env  (if (= :statement (:context env))
                        (assoc env :context :statement)
                        (assoc env :context :return))
-            ret      (analyze ret-env (peek exprs))]
+            ret      (analyze ret-env (last exprs))
+            children [:statements :ret]]
         {:op :do
          :env env
          :form form
@@ -2072,13 +2068,14 @@
         loop-lets    (cond
                        (true? is-loop) *loop-lets*
                        (some? *loop-lets*) (cons {:params bes} *loop-lets*))
-        expr         (analyze-let-body env context exprs recur-frames loop-lets)]
+        expr         (analyze-let-body env context exprs recur-frames loop-lets)
+        children     [:bindings :body]]
     {:op op
      :env encl-env
      :bindings bes
      :expr expr
      :form form
-     :children [:bindings :body]}))
+     :children children}))
 
 (defmethod parse 'let*
   [op encl-env form _ _]
@@ -2096,7 +2093,7 @@
         add-implicit-target-object? (and (:protocol-impl frame)
                                          (= (count exprs) (dec (count (:params frame)))))
         exprs (cond->> exprs add-implicit-target-object? (cons nil))
-        exprs (disallowing-recur (mapv #(analyze (assoc env :context :expr) %) exprs))]
+        exprs (disallowing-recur (vec (map #(analyze (assoc env :context :expr) %) exprs)))]
     (when-not frame
       (throw (error env "Can't recur here")))
     (when-not (= (count exprs) (count (:params frame)))
@@ -2131,7 +2128,7 @@
          record-args
          (when (and (:record ctor-var) (not (-> ctor meta :internal-ctor)))
            (repeat 3 (analyze enve nil)))
-         argexprs (into (mapv #(analyze enve %) args) record-args)
+         argexprs (into (vec (map #(analyze enve %) args)) record-args)
          known-num-fields (:num-fields ctor-var)
          argc (count args)]
      (when (and (not (-> ctor meta :internal-ctor))
@@ -2913,8 +2910,8 @@
   (let [t (:name (resolve-var (dissoc env :locals) tsym))
         locals (reduce (fn [m fld]
                          (assoc m fld
-                                {:op :local
-                                 :name fld
+                                {:name fld
+                                 :op :local
                                  :line (get-line fld env)
                                  :column (get-col fld env)
                                  :local :field
@@ -2943,8 +2940,8 @@
     {:op op :env env :form form :t t :fields fields :pmasks pmasks
      :tag 'function
      :protocols (disj protocols 'cljs.core/Object)
-     :body (analyze (assoc env :locals locals) body)
-     :children [:body]}))
+     :children [:body]
+     :body (analyze (assoc env :locals locals) body)}))
 
 (defmethod parse 'deftype*
   [_ env form _ _]
@@ -3059,24 +3056,25 @@
           (swap! env/*compiler* update-in
             (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))))
     (case dot-action
-      ::access (let []
+      ::access (let [children [:target]]
                  {:op :host-field
                   :env env
                   :form form
                   :target targetexpr
                   :field field
-                  :children [:target]
+                  :children children
                   :tag (if (js-tag? tag)
                          (or (js-tag (-> tag meta :prefix) :tag) tag)
                          tag)})
-      ::call   (let [argexprs (mapv #(analyze enve %) args)]
+      ::call   (let [argexprs (mapv #(analyze enve %) args)
+                     children [:target :args]]
                  {:op :host-call
                   :env env
                   :form form
                   :target targetexpr
                   :method method
                   :args argexprs
-                  :children [:target :args]
+                  :children children
                   :tag (if (js-tag? tag)
                          (or (js-tag (-> tag meta :prefix) :ret-tag) 'js)
                          tag)}))))
@@ -3161,7 +3159,7 @@
 
 (defn analyze-js-star* [env jsform args form]
   (let [enve      (assoc env :context :expr)
-        argexprs  (mapv #(analyze enve %) args)
+        argexprs  (vec (map #(analyze enve %) args))
         form-meta (meta form)
         segs      (js-star-seg jsform)
         tag       (get-js-tag form)
@@ -3287,8 +3285,8 @@
              (~(analyzed (if bind-f-expr? f-sym f))
                ~@(if bind-args? arg-syms args)))))
       (let [ana-expr #(analyze enve %)
-            argexprs (mapv ana-expr args)]
-        {:env env :op :invoke :form form :fn fexpr :args argexprs
+            argexprs (map ana-expr args)]
+        {:env env :op :invoke :form form :fn fexpr :args (vec argexprs)
          :children [:fn :args]}))))
 
 (defn parse-invoke
@@ -3336,8 +3334,7 @@
               (when-let [const-expr (:const-expr info)]
                 {:const-expr const-expr}))
             (let [info (resolve-var env sym)]
-              (assoc (merge info ret)
-                     :info info))))))))
+              (assoc (merge info ret) :info info))))))))
 
 (defn excluded?
   #?(:cljs {:tag boolean})
@@ -3517,8 +3514,8 @@
 (defn analyze-map
   [env form]
   (let [expr-env (assoc env :context :expr)
-        ks (disallowing-recur (mapv #(analyze expr-env %) (keys form)))
-        vs (disallowing-recur (mapv #(analyze expr-env %) (vals form)))]
+        ks (disallowing-recur (vec (map #(analyze expr-env %) (keys form))))
+        vs (disallowing-recur (vec (map #(analyze expr-env %) (vals form))))]
     (analyze-wrap-meta {:op :map :env env :form form
                         :keys ks :vals vs
                         :children [:keys :vals]
@@ -3527,23 +3524,20 @@
 (defn analyze-list
   [env form]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (mapv #(analyze expr-env %) form))]
-    (analyze-wrap-meta {:op :list :env env :form form :items items 
-                        :children [:items] :tag 'cljs.core/IList})))
+        items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
+    (analyze-wrap-meta {:op :list :env env :form form :items items :children [:items] :tag 'cljs.core/IList})))
 
 (defn analyze-vector
   [env form]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (mapv #(analyze expr-env %) form))]
-    (analyze-wrap-meta {:op :vector :env env :form form :items items 
-                        :children [:items] :tag 'cljs.core/IVector})))
+        items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
+    (analyze-wrap-meta {:op :vector :env env :form form :items items :children [:items] :tag 'cljs.core/IVector})))
 
 (defn analyze-set
-  [env form]
+  [env form ]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (mapv #(analyze expr-env %) form))]
-    (analyze-wrap-meta {:op :set :env env :form form :items items 
-                        :children [:items] :tag 'cljs.core/ISet})))
+        items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
+    (analyze-wrap-meta {:op :set :env env :form form :items items :children [:items] :tag 'cljs.core/ISet})))
 
 (defn analyze-js-value
   [env ^JSValue form]
