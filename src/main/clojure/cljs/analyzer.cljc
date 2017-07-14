@@ -1970,7 +1970,6 @@
   (mapv #(analyze (assoc env :context :statement) %) (pop exprs)))
 
 (defn analyze-do-statements [env exprs]
-  {:post [(vector? %)]}
   (disallowing-recur (analyze-do-statements* env exprs)))
 
 (defmethod parse 'do
