@@ -1838,9 +1838,13 @@
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
+        children     (if (some? name-var)
+                       [:local :methods]
+                       [:methods])
         ast          {:op :fn
                       :env env
                       :form form
+                      :name name-var
                       :methods methods
                       :variadic variadic
                       :tag 'function
@@ -1849,12 +1853,10 @@
                       :jsdoc [js-doc]
                       :max-fixed-arity mfa
                       :protocol-impl proto-impl
-                      :protocol-inline proto-inline}
-        ast          (merge ast
-                       (if (some? name-var)
-                         {:local name-var
-                          :children [:local :methods]}
-                         {:children [:methods]}))]
+                      :protocol-inline proto-inline
+                      :children children}
+        ast          (merge ast (when (some? name-var)
+                                  {:local name-var}))]
     (let [variadic-methods (filter :variadic methods)
           variadic-params  (count (:params (first variadic-methods)))
           param-counts     (map (comp count :params) methods)]
