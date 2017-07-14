@@ -1663,51 +1663,37 @@
               {:ret-tag tag}
               (when tag {:tag tag}))
             {:op :var})))
-      (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
-        (merge
-          {:name var-name
-           :ns var-ns}
-          ;; remove actual test metadata, as it includes non-valid EDN and
-          ;; cannot be present in analysis cached to disk - David
-          (cond-> sym-meta
-            (:test sym-meta) (assoc :test true))
-          {:meta (-> sym-meta
-                   (dissoc :test)
-                   (update-in [:file]
-                     (fn [f]
-                       (if (= (-> env :ns :name) 'cljs.core)
-                         "cljs/core.cljs"
-                         f))))}
-          (when doc {:doc doc})
-          (when (true? dynamic) {:dynamic true})
-          (source-info var-name env)
-          ;; the protocol a protocol fn belongs to
-          (when protocol
-            {:protocol protocol})
-          ;; symbol for reified protocol
-          (when-let [protocol-symbol (-> sym meta :protocol-symbol)]
-            {:protocol-symbol protocol-symbol
-             :info (-> protocol-symbol meta :protocol-info)
-             :impls #{}})
-          (when fn-var?
-            ;; FIXME should params be a vector? - Ambrose
-            (let [params (map #(vec (map :name (:params %))) (:methods init-expr))]
-              (merge
-                {:fn-var true
-                 ;; protocol implementation context
-                 :protocol-impl (:protocol-impl init-expr)
-                 ;; inline protocol implementation context
-                 :protocol-inline (:protocol-inline init-expr)}
-                (if-some [top-fn-meta (:top-fn sym-meta)]
-                  top-fn-meta
-                  {:variadic (:variadic init-expr)
-                   :max-fixed-arity (:max-fixed-arity init-expr)
-                   :method-params params
-                   :arglists (:arglists sym-meta)
-                   :arglists-meta (doall (map meta (:arglists sym-meta)))}))) )
-          (when (and fn-var? (some? tag))
-            {:ret-tag tag})
-          {:op :var})))))
+      (merge
+        {:env env
+         :op :def
+         :form form
+         :ns var-ns
+         :name var-name
+         :var (assoc
+                (analyze
+                  (-> env (dissoc :locals)
+                    (assoc :context :expr)
+                    (assoc :def-var true))
+                  sym)
+                :op :var)
+         :doc doc
+         :jsdoc (:jsdoc sym-meta)}
+        (when (some? init-expr)
+          {:init init-expr})
+        (when (true? (:def-emits-var env))
+          {:the-var (var-ast env sym)})
+        (when-some [test (:test sym-meta)]
+          {:test (analyze (assoc env :context :expr) test)})
+        (when (some? tag)
+          (if fn-var?
+            {:ret-tag tag}
+            {:tag tag}))
+        (when (true? dynamic) {:dynamic true})
+        (when (some? export-as) {:export export-as})
+        ;;FIXME should this be :var or :the-var? - Ambrose
+        (if (some? init-expr)
+          {:children [:the-var :init]}
+          {:children [:the-var :init]})))))
 
 (defn analyze-fn-method-param [env]
   (fn [[locals params] name]
