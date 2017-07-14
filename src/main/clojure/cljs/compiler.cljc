@@ -337,30 +337,28 @@
   [{:keys [info env form] :as ast}]
   (if-let [const-expr (:const-expr ast)]
     (emit (assoc const-expr :env env))
-    (let [var-name (:name ast)
-          ast (if (= (namespace var-name) "js")
-                (let [js-module-name (get-in @env/*compiler* [:js-module-index (name var-name)])]
-                  (or js-module-name (name var-name)))
-                ast)]
-      (when-not (= :statement (:context env))
-        (emit-wrap env
-          (emits
-            (cond-> ast
-              (not= form 'js/-Infinity) munge)))))))
+    (let [var-name (:name info)
+          info (if (= (namespace var-name) "js")
+                 (let [js-module-name (get-in @env/*compiler* [:js-module-index (name var-name)])]
+                   (or js-module-name (name var-name)))
+                 info)]
+      ; We need a way to write bindings out to source maps and javascript
+      ; without getting wrapped in an emit-wrap calls, otherwise we get
+      ; e.g. (function greet(return x, return y) {}).
+      (if (:binding-form? ast)
+        ; Emit the arg map so shadowing is properly handled when munging
+        ; (prevents duplicate fn-param-names)
+        (emits (munge ast))
+        (when-not (= :statement (:context env))
+          (emit-wrap env
+            (emits
+              (cond-> info
+                (not= form 'js/-Infinity) munge))))))))
 
 (defmethod emit* :var [expr] (emit-var expr))
 (defmethod emit* :js-var [expr] (emit-var expr))
 (defmethod emit* :local [expr] (emit-var expr))
-(defmethod emit* :binding [{:keys [info env form] :as ast}]
-  (if-let [const-expr (:const-expr ast)]
-    (emit (assoc const-expr :env env))
-    ; We need a way to write bindings out to source maps and javascript
-    ; without getting wrapped in an emit-wrap calls, otherwise we get
-    ; e.g. (function greet(return x, return y) {}).
-
-    ; Emit the ast map so shadowing is properly handled when munging
-    ; (prevents duplicate fn-param-names)
-    (emits (munge ast))))
+(defmethod emit* :binding [expr] (emit-var expr))
 
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
@@ -381,7 +379,7 @@
 
 (defn distinct-keys? [keys]
   (and (every? #(= (:op %) :const) keys)
-       ;; this looks suspicious, shouldn't it be (into #{} (map :val keys))? - Ambrose
+       ;; FIXME this looks suspicious, shouldn't it be (into #{} (map :val keys))? - Ambrose
        (= (count (into #{} keys)) (count keys))))
 
 (defmethod emit* :map

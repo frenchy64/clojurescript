@@ -1718,7 +1718,8 @@
                   ;; as a :var, so it gets routed
                   ;; correctly in the compiler
                   :env env
-                  :info {:name name :shadow shadow}}]
+                  :info {:name name :shadow shadow}
+                  :binding-form? true}]
      [(assoc locals name param) (conj params param)])))
 
 (defn analyze-fn-method-body [env form recur-frames]
