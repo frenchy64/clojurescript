@@ -1818,7 +1818,7 @@
         menv         (merge menv
                        {:protocol-impl proto-impl
                         :protocol-inline proto-inline})
-        methods      (map #(disallowing-ns* (analyze-fn-method menv locals % type (nil? name))) meths)
+        methods      (mapv #(disallowing-ns* (analyze-fn-method menv locals % type (nil? name))) meths)
         mfa          (apply max (map :max-fixed-arity methods))
         variadic     (boolean (some :variadic methods))
         locals       (if named-fn?
@@ -1834,7 +1834,7 @@
                        ;; a second pass with knowledge of our function-ness/arity
                        ;; lets us optimize self calls
                        (disallowing-ns* (analyze-fn-methods-pass2 menv locals type meths))
-                       (vec methods))
+                       methods)
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
