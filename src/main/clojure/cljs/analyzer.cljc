@@ -2036,7 +2036,8 @@
                     :op :binding
                     :env {:line line :column col}
                     :info {:name name
-                           :shadow (-> env :locals name)}}
+                           :shadow (-> env :locals name)}
+                    :binding-form? true}
                 be (if (= :fn (:op init-expr))
                      ;; TODO: can we simplify - David
                      (merge be
