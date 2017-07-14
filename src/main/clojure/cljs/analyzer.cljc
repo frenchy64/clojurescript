@@ -1465,8 +1465,8 @@
                 :done (throw (error env "Unexpected form after finally"))))
             parser))
 
-        finally-expr (when (seq fblock)
-                       (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
+        finally (when (seq fblock)
+                  (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
         e (when (or (seq cblocks) dblock) (gensym "e"))
         default (if-let [[_ _ name & cb] dblock]
                   `(cljs.core/let [~name ~e] ~@cb)
@@ -1488,24 +1488,24 @@
                          :line (get-line e env)
                          :column (get-col e env)})
                  locals)
-        catch-expr (when cblock
-                     (analyze (assoc catchenv :locals locals) cblock))
-        body-expr (analyze (if (or e finally-expr) catchenv env) `(do ~@body))]
+        catch (when cblock
+                (analyze (assoc catchenv :locals locals) cblock))
+        try (analyze (if (or e finally) catchenv env) `(do ~@body))]
 
     (merge
       {:env env :op :try :form form
-       :body body-expr
+       :body try
        :children (vec
                    (concat [:body]
                            (when e
                              [:catch])
-                           (when finally-expr
+                           (when finally
                              [:finally])))}
       (when e
-        {:catch catch-expr
+        {:catch catch
          :name e})
-      (when finally-expr
-        {:finally finally-expr}))))
+      (when finally
+        {:finally finally}))))
 
 (defn valid-proto [x]
   (when (symbol? x) x))
