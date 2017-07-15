@@ -1763,7 +1763,7 @@
       (merge name-var ret-tag))))
 
 (defn analyze-fn-methods-pass2* [menv locals type meths]
-  (vec (map #(analyze-fn-method menv locals % type true) meths)))
+  (doall (map #(analyze-fn-method menv locals % type true) meths)))
 
 (defn analyze-fn-methods-pass2 [menv locals type meths]
   (analyze-fn-methods-pass2* menv locals type meths))
@@ -1797,7 +1797,7 @@
         menv         (merge menv
                        {:protocol-impl proto-impl
                         :protocol-inline proto-inline})
-        methods      (mapv #(disallowing-ns* (analyze-fn-method menv locals % type (nil? name))) meths)
+        methods      (map #(disallowing-ns* (analyze-fn-method menv locals % type (nil? name))) meths)
         mfa          (apply max (map :max-fixed-arity methods))
         variadic     (boolean (some :variadic methods))
         locals       (if named-fn?
@@ -1824,7 +1824,7 @@
                       :env env
                       :form form
                       :name name-var
-                      :methods methods
+                      :methods (vec methods)
                       :variadic variadic
                       :tag 'function
                       :recur-frames *recur-frames*
