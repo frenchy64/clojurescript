@@ -1198,7 +1198,7 @@
 (defn analyze-keyword
   [env sym]
   (register-constant! env sym)
-  {:op :const :env env :val sym :form sym :tag 'cljs.core/Keyword})
+  {:op :const :val sym :env env :form sym :tag 'cljs.core/Keyword})
 
 (defn get-tag [e]
   (if-some [tag (-> e :tag)]
@@ -1573,8 +1573,8 @@
           init-expr (when (contains? args :init)
                       (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
                         (merge
-                          {:ns var-ns
-                           :name var-name}
+                          {:ns var-ns}
+                          {:name var-name}
                           sym-meta
                           (when (true? dynamic) {:dynamic true})
                           (source-info var-name env)))
@@ -1601,8 +1601,7 @@
 
         (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
           (merge
-            {:name var-name
-             :ns var-ns}
+            {:name var-name}
             ;; remove actual test metadata, as it includes non-valid EDN and
             ;; cannot be present in analysis cached to disk - David
             (cond-> sym-meta
@@ -1646,7 +1645,8 @@
                      :method-params params
                      :arglists (:arglists sym-meta)
                      :arglists-meta (doall (map meta (:arglists sym-meta)))}))))
-            {:op :var}
+            {:op :var
+             :ns var-ns}
             (if (and fn-var? (some? tag))
               {:ret-tag tag}
               (when tag {:tag tag})))))
@@ -1664,9 +1664,8 @@
                   sym)
                 :op :var)
          :doc doc
-         :jsdoc (:jsdoc sym-meta)}
-        (when (some? init-expr)
-          {:init init-expr})
+         :jsdoc (:jsdoc sym-meta)
+         :init init-expr}
         (when (true? (:def-emits-var env))
           {:the-var (var-ast env sym)})
         (when-some [test (:test sym-meta)]
