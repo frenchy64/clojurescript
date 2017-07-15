@@ -953,22 +953,22 @@
 (defmethod resolve* :node
   [sym full-ns current-ns]
   {:name (symbol (str current-ns) (str (munge-node-lib full-ns) "." (name sym)))
-   :ns current-ns
-   :op :var})
+   :op :var
+   :ns current-ns})
 
 (defmethod resolve* :global
   [sym full-ns current-ns]
   {:name (symbol (str current-ns) (str (munge-global-export full-ns) "." (name sym)))
-   :ns current-ns
-   :op :var})
+   :op :var
+   :ns current-ns})
 
 (defmethod resolve* :default
   [sym full-ns current-ns]
   (merge (gets @env/*compiler* ::namespaces full-ns :defs (symbol (name sym)))
     {:name (symbol (str full-ns) (str (name sym)))
-     :ns full-ns
      :form sym
-     :op :var}))
+     :op :var
+     :ns full-ns}))
 
 (defn required? [ns env]
   (or (contains? (set (vals (gets env :ns :requires))) ns)
