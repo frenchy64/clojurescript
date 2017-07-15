@@ -1479,20 +1479,17 @@
                 (analyze (assoc catchenv :locals locals) cblock))
         try (analyze (if (or e finally) catchenv env) `(do ~@body))]
 
-    (merge
-      {:env env :op :try :form form
-       :body try
-       :children (vec
-                   (concat [:body]
-                           (when e
-                             [:catch])
-                           (when finally
-                             [:finally])))}
-      (when e
-        {:catch catch
-         :name e})
-      (when finally
-        {:finally finally}))))
+    {:env env :op :try :form form
+     :body try
+     :finally finally
+     :name e
+     :catch catch
+     :children (vec
+                 (concat [:body]
+                         (when e
+                           [:catch])
+                         (when finally
+                           [:finally])))}))
 
 (defn valid-proto [x]
   (when (symbol? x) x))
