@@ -1955,6 +1955,8 @@
                     :tag (get-let-tag name init-expr)
                     :local op
                     :shadow (-> env :locals name)
+                    ;; Give let* bindings same shape as var so
+                    ;; they get routed correctly in the compiler
                     :op :binding
                     :env {:line line :column col}
                     :info {:name name
@@ -2847,9 +2849,9 @@
                          (assoc m fld
                                 {:name fld
                                  :op :local
+                                 :local :field
                                  :line (get-line fld env)
                                  :column (get-col fld env)
-                                 :local :field
                                  :field true
                                  :mutable (-> fld meta :mutable)
                                  :unsynchronized-mutable (-> fld meta :unsynchronized-mutable)
