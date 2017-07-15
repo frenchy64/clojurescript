@@ -537,10 +537,10 @@
       (emitln "return " gs ";})()"))))
 
 (defmethod emit* :throw
-  [{:keys [exception env]}]
+  [{throw :exception :keys [env]}]
   (if (= :expr (:context env))
-    (emits "(function(){throw " exception "})()")
-    (emitln "throw " exception ";")))
+    (emits "(function(){throw " throw "})()")
+    (emitln "throw " throw ";")))
 
 (def base-types
   #{"null" "*" "...*"
@@ -664,7 +664,7 @@
              (pr-str define))))))
 
 (defmethod emit* :def
-  [{:keys [name var init env doc jsdoc export test the-var]}]
+  [{:keys [name var init env doc jsdoc export test]}]
   ;; We only want to emit if an init is supplied, this is to avoid dead code
   ;; elimination issues. The REPL is the exception to this rule.
   (when (or init (:def-emits-var env))
