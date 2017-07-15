@@ -991,16 +991,16 @@
       :js     {:name (symbol
                        (or (gets @env/*compiler* :js-module-index ns)
                            (resolve-ns-alias env ns)))
-               :ns 'js
-               :op :var}
+               :op :var
+               :ns 'js}
       :node   {:name (symbol (str current-ns)
                        (munge-node-lib (resolve-ns-alias env ns)))
-               :ns current-ns
-               :op :var}
+               :op :var
+               :ns current-ns}
       :global {:name (symbol (str current-ns)
                        (munge-global-export (resolve-ns-alias env ns)))
-               :ns current-ns
-               :op :var})))
+               :op :var
+               :ns current-ns})))
 
 (defn resolve-var
   "Resolve a var. Accepts a side-effecting confirm fn for producing
