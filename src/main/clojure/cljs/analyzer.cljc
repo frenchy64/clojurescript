@@ -1053,6 +1053,7 @@
                (confirm env full-ns (symbol (name sym))))
              (resolve* sym full-ns current-ns))
 
+           ;; FIXME move all this logic to `analyze-form`
            (dotted-symbol? sym)
            (let [idx    (.indexOf s ".")
                  prefix (symbol (subs s 0 idx))
@@ -1298,10 +1299,10 @@
         :def      (infer-tag env (:init e))
         :invoke   (infer-invoke env e)
         :if       (infer-if env e)
-        :const   (case (:form e)
-                   true BOOLEAN_SYM
-                   false BOOLEAN_SYM
-                   ANY_SYM)
+        :const    (case (:form e)
+                    true BOOLEAN_SYM
+                    false BOOLEAN_SYM
+                    ANY_SYM)
         (:var :binding :local :js-var)
                   (if-some [init (:init e)]
                     (infer-tag env init)
