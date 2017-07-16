@@ -433,15 +433,10 @@
 
       :else (emits "cljs.core.PersistentHashSet.createAsIfByAssoc([" (comma-sep items) "])"))))
 
-(defmethod emit* :js-array
-  [{:keys [items env]}]
+(defn emit-js-value
+  [{:keys [items js-type env]}]
   (emit-wrap env
-    (emits "[" (comma-sep items) "]")))
-
-(defmethod emit* :js-object
-  [{:keys [keys vals js-type env]}]
-  (let [items (map vector keys vals)]
-    (emit-wrap env
+    (if (= js-type :object)
       (do
         (emits "({")
         (when-let [items (seq items)]
@@ -449,7 +444,11 @@
             (emits "\"" (name k) "\": " v)
             (doseq [[k v] r]
               (emits ", \"" (name k) "\": " v))))
-        (emits "})")))))
+        (emits "})"))
+      (emits "[" (comma-sep items) "]"))))
+
+(defmethod emit* :js-array [ast] (emit-js-value ast))
+(defmethod emit* :js-object [ast] (emit-js-value ast))
 
 (defmethod emit* :quote
   [{:keys [expr]}]
