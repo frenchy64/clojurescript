@@ -373,8 +373,7 @@
 
 (defn distinct-keys? [keys]
   (and (every? #(= (:op %) :const) keys)
-       ;; FIXME this looks suspicious, shouldn't it be (into #{} (map :val keys))? - Ambrose
-       (= (count (into #{} keys)) (count keys))))
+       (distinct? (map :val keys))))
 
 (defmethod emit* :map
   [{:keys [env keys vals]}]
