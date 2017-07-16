@@ -3552,6 +3552,7 @@
 (defn analyze-js-value
   [env ^JSValue form]
   (let [val (.-val form)
+        js-type (if (map? val) :object :array)
         expr-env (assoc env :context :expr)]
     (if (map? val)
       (let [keys (disallowing-recur
@@ -3559,6 +3560,7 @@
             vals (disallowing-recur
                    (mapv #(analyze expr-env %) (vals val)))]
         {:op :js-object
+         :js-type js-type
          :env env
          :form form
          :keys keys
@@ -3568,6 +3570,7 @@
       (let [items (disallowing-recur
                     (mapv #(analyze expr-env %) val))]
         {:op :js-array
+         :js-type js-type
          :env env
          :form form
          :items items
