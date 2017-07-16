@@ -1501,11 +1501,19 @@
   (fn [env ast opts]
     (assoc ast :env new-env)))
 
+(defn ast-children [ast]
+  (mapcat (fn [c]
+            (let [g (get ast c)]
+              (cond
+                (vector? g) g
+                g [g])))
+          (:children ast)))
+
 (defn constant-value?
   [{:keys [op] :as ast}]
   (or (= :constant op)
       (and (#{:map :set :vector :list} op)
-           (every? constant-value? (:children ast)))))
+           (every? constant-value? (ast-children ast)))))
 
 (defmethod parse 'def
   [op env form _ _]
