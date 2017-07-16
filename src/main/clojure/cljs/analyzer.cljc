@@ -1010,9 +1010,8 @@
    (let [locals (:locals env)]
      (if #?(:clj  (= "js" (namespace sym))
             :cljs (identical? "js" (namespace sym)))
-       (let [nme (-> sym name symbol)
-             shadowed-by-local (get locals nme)]
-         (when (some? shadowed-by-local)
+       (do
+         (when (contains? locals (-> sym name symbol))
            (warning :js-shadowed-by-local env {:name sym}))
          (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
            (when-not (has-extern? pre)
@@ -1022,7 +1021,7 @@
              {:name sym
               :ns   'js
               :tag  (with-meta (or (js-tag pre) (:tag (meta sym)) 'js) {:prefix pre})}
-             (if (some? shadowed-by-local)
+             (if-some [shadowed-by-local (get locals (-> sym name symbol))]
                (assoc shadowed-by-local
                       :op :local
                       :form sym
