@@ -1993,7 +1993,7 @@
     {:op op
      :env encl-env
      :bindings bes
-     :expr expr
+     :body expr
      :form form
      :children children}))
 
@@ -3230,7 +3230,7 @@
           ret  {:env env :form sym}
           lcls (:locals env)]
       (if-some [lb (get lcls sym)]
-        (assoc ret :op :local :info lb)
+        (assoc (merge lb ret) :op :local :info lb)
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
               cur-ns (str (-> env :ns :name))
@@ -3249,8 +3249,7 @@
                          (resolve-var env sym))]
           (if-not (true? (:def-var env))
             (merge
-              ;; FIXME is this actually a :var? - Ambrose
-              (assoc ret :op :var :info info)
+              (assoc (merge info ret) :info info)
               (when-let [const-expr (:const-expr info)]
                 {:const-expr const-expr}))
             (let [info (resolve-var env sym)]

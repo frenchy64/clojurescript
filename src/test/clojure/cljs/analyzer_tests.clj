@@ -664,8 +664,11 @@
   (is (= (-> (ana ::a) juxt-op-val) [:const ::a]))
   (is (= (-> (ana "abc") juxt-op-val) [:const "abc"]))
   ;variables
+      ; FIXME deviates from tools.analyzer, :name is always unqualified
   (is (= [:var 'cljs.core 'cljs.core/inc 'inc] (-> (ana inc) ((juxt :op :ns :name :form)))))
   (is (= [:var 'cljs.core 'cljs.core/inc 'cljs.core/inc] (-> (ana cljs.core/inc) ((juxt :op :ns :name :form)))))
+      ; TODO dotted variables should be nested fields/methods
+  (is (not= :var (-> (ana inc.foo.bar) :op)))
   ;do
   (is (= (-> (ana (do 1 2)) :op) :do))
   (is (= (-> (ana (do 1 2)) :children) [:statements :ret]))
@@ -696,6 +699,8 @@
   (is (= (-> (ana (let [a 1] a)) :body :ret :name) 'a))
   (is (= (-> (ana (let [a 1] a)) :body :ret :form) 'a))
   (is (map? (-> (ana (let [a 1] a)) :body :ret :env)))
+      ; TODO handle dotted locals
+  (is (not= :local (-> (ana (let [a 1] a.b)) :body :ret :op)))
   ;local shadow
   (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body 
                         :env :locals
@@ -703,8 +708,8 @@
                         :name))
          'alert))
   (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret 
-                        ((juxt :op :name :ns))))
-         [:local 'alert nil]))
+                        ((juxt :op :name))))
+         [:local 'alert]))
   ;loop
   (is (= (-> (ana (loop [])) :op) :loop))
   (is (= (-> (ana (loop [a 1])) :bindings first :op) :binding))
