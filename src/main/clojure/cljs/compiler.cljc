@@ -493,40 +493,21 @@
           (emitln then "} else {")
           (emitln else "}"))))))
 
-(defmethod emit* :case-test
-  [{:keys [test]}]
-  {:pre [(ana/ast? test)]}
-  (emitln "case " test ":"))
-
-(defmethod emit* :case-then
-  [{:keys [then env ::case-gs]}]
-  {:pre [(ana/ast? then)
-         (map? env)
-         (symbol? case-gs)]}
-  (if (= :expr (:context env))
-    (emitln case-gs "=" then)
-    (emitln then)))
-
-(defmethod emit* :case-node
-  [{:keys [tests then env]}]
-  {:pre [(vector? tests)
-         (ana/ast? then)
-         (map? env)]}
-  (run! emit tests)
-  (emit then)
-  (emitln "break;"))
-
 (defmethod emit* :case
-  [{:keys [test nodes default env]}]
-  {:pre [(vector? nodes)]}
+  [{:keys [v tests thens default env]}]
   (when (= (:context env) :expr)
     (emitln "(function(){"))
   (let [gs (gensym "caseval__")]
     (when (= :expr (:context env))
       (emitln "var " gs ";"))
-    (emitln "switch (" test ") {")
-    (run! emit (->> nodes
-                    (map #(assoc-in % [:then ::case-gs] gs))))
+    (emitln "switch (" v ") {")
+    (doseq [[ts then] (partition 2 (interleave tests thens))]
+      (doseq [test ts]
+        (emitln "case " test ":"))
+      (if (= :expr (:context env))
+        (emitln gs "=" then)
+        (emitln then))
+      (emitln "break;"))
     (when default
       (emitln "default:")
       (if (= :expr (:context env))

@@ -1378,45 +1378,24 @@
      :children [:test :then :else]}))
 
 (defmethod parse 'case*
-  [op env [_ test tests thens default :as form] name _]
-  (assert (symbol? test) "case* must switch on symbol")
+  [op env [_ sym tests thens default :as form] name _]
+  (assert (symbol? sym) "case* must switch on symbol")
   (assert (every? vector? tests) "case* tests must be grouped in vectors")
   (let [expr-env (assoc env :context :expr)
-        test     (disallowing-recur (analyze expr-env test))
-        tests    (map #(mapv (fn [t]
-                               (let [env expr-env]
-                                 {:op :case-test 
-                                  :test (analyze env t)
-                                  :children [:test]
-                                  :env env}))
-                             %)
-                      tests)
-        thens    (map #(let [env env]
-                         {:op :case-then
-                          :then (analyze env %)
-                          :children [:then]
-                          :env env})
-                      thens)
-        nodes    (mapv (fn [tests then]
-                         {:pre [(vector? tests)]}
-                         ; no :form, this is a synthetic grouping node
-                         {:op :case-node
-                          :env env ;; just use original env - Ambrose
-                          :tests tests
-                          :then then
-                          :children [:tests :then]})
-                       tests thens)
+        v        (disallowing-recur (analyze expr-env sym))
+        tests    (mapv #(mapv (fn [t] (analyze expr-env t)) %) tests)
+        thens    (mapv #(analyze env %) thens)
         default  (analyze env default)]
     (assert (every? (fn [t]
                       (or
                         (-> t :info :const)
                         (and (= :const (:op t))
-                             ((some-fn number? string? char?) (:val t)))))
-              (apply concat (map (comp #(map :test %) :tests) nodes)))
+                             ((some-fn number? string? char?) (:form t)))))
+              (apply concat tests))
       "case* tests must be numbers, strings, or constants")
     {:env env :op :case :form form
-     :test test :nodes nodes :default default
-     :children [:test :nodes :default]}))
+     :v v :tests tests :thens thens :default default
+     :children (vec (concat [:v :tests :thens] (when default [:default])))}))
 
 (defmethod parse 'throw
   [op env [_ throw :as form] name _]
