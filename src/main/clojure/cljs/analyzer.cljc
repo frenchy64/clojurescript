@@ -1648,10 +1648,9 @@
                   sym)
                 :op :var)
          :doc doc
-         :jsdoc (:jsdoc sym-meta)
-         :init init-expr}
+         :jsdoc (:jsdoc sym-meta)}
         (when (true? (:def-emits-var env))
-          {:the-var (var-ast env sym)})
+          {:var (var-ast env sym)})
         (when-some [test (:test sym-meta)]
           {:test (analyze (assoc env :context :expr) test)})
         (when (some? tag)
@@ -1660,10 +1659,10 @@
             {:tag tag}))
         (when (true? dynamic) {:dynamic true})
         (when (some? export-as) {:export export-as})
-        ;;FIXME should this be :var or :the-var? - Ambrose
         (if (some? init-expr)
-          {:children [:the-var :init]}
-          {:children [:the-var :init]})))))
+          {:init init-expr
+           :children [:var :init]}
+          {:children [:var]})))))
 
 (defn analyze-fn-method-param [env]
   (fn [[locals params] name]
