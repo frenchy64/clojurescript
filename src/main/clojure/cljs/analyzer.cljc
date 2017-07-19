@@ -1553,11 +1553,10 @@
                   (update-in env [:ns :excludes] conj-to-set sym))
                 env)
           var-name (:name (resolve-var (dissoc env :locals) sym))
-          var-ns (some-> var-name namespace symbol)
           init-expr (when (contains? args :init)
                       (swap! env/*compiler* assoc-in [::namespaces ns-name :defs sym]
                         (merge
-                          {:ns var-ns}
+                          {:ns ns-name}
                           {:name var-name}
                           sym-meta
                           (when (true? dynamic) {:dynamic true})
@@ -1630,7 +1629,7 @@
                      :arglists (:arglists sym-meta)
                      :arglists-meta (doall (map meta (:arglists sym-meta)))}))))
             {:op :var
-             :ns var-ns}
+             :ns ns-name}
             (if (and fn-var? (some? tag))
               {:ret-tag tag}
               (when tag {:tag tag})))))
@@ -1638,7 +1637,7 @@
         {:env env
          :op :def
          :form form
-         :ns var-ns
+         :ns ns-name
          :name var-name
          :var (assoc
                 (analyze
