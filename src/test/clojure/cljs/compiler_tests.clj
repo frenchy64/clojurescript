@@ -113,7 +113,7 @@
 (defmacro capture-warnings [& body]
   `(capture-warnings* (fn [] ~@body)))
 
-(deftest or-doesnt-create-bindings
+(deftest ^:compiler or-doesnt-create-bindings
   (let [cenv (atom @cenv)]
     (binding [ana/*cljs-static-fns* true
               ana/*analyze-deps* false]
