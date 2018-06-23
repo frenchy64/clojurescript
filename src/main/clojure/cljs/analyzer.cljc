@@ -1249,8 +1249,14 @@
 
 (def BOOLEAN_OR_SEQ '#{boolean seq})
 
+(defn unwrap-quote [{:keys [op] :as expr}]
+  (if #?(:clj (= op :quote)
+         :cljs (keyword-identical? op :quote))
+    (:expr expr)
+    expr))
+
 (defn infer-if [env e]
-  (let [{{:keys [op form]} :test} e
+  (let [{:keys [op form]} (unwrap-quote (:test e))
         then-tag (infer-tag env (:then e))]
     (if (and #?(:clj (= op :const)
                 :cljs (keyword-identical? op :const))
@@ -1314,6 +1320,7 @@
                     true BOOLEAN_SYM
                     false BOOLEAN_SYM
                     ANY_SYM)
+        :quote    (infer-tag env (:expr e))
         :var      (if-some [init (:init e)]
                     (infer-tag env init)
                     (infer-tag env (:info e)))
@@ -1526,9 +1533,19 @@
 
 (defn constant-value?
   [{:keys [op] :as ast}]
-  (or (= :const op)
+  (or (#{:quote :const} op)
       (and (#{:map :set :vector :list} op)
            (every? constant-value? (ast-children ast)))))
+
+(defn const-expr->constant-value [{:keys [op] :as e}]
+  (case op 
+    :quote  (const-expr->constant-value (:expr e))
+    :const  (:val e)
+    :map    (zipmap (map const-expr->constant-value (:keys e))
+                    (map const-expr->constant-value (:vals e)))
+    :set    (into #{} (map const-expr->constant-value (:items e)))
+    :vector (into [] (map const-expr->constant-value (:items e)))
+    :list   (apply list* (map const-expr->constant-value (:items e)))))
 
 (defmethod parse 'def
   [op env form _ _]
@@ -2066,9 +2083,29 @@
       :exprs exprs
       :children [:exprs])))
 
+(defn analyze-const
+  [env form]
+  (let [;; register constants
+        {:keys [tag]} (analyze (assoc env :quoted? true) form)]
+    (analyze-wrap-meta
+     {:op       :const
+      :env      env
+      :literal? true
+      :val      form
+      :tag      tag
+      :form     form})))
+
 (defmethod parse 'quote
-  [_ env [_ x] _ _]
-  (analyze (assoc env :quoted? true) x))
+  [_ env [_ x :as form] _ _]
+  (when (not= 2 (count form))
+    (throw (error env "Wrong number of args to quote")))
+  (let [expr (analyze-const env x)]
+    {:op :quote
+     :expr expr
+     :env env
+     :form form
+     :tag (:tag expr)
+     :children [:expr]}))
 
 (defmethod parse 'new
   [_ env [_ ctor & args :as form] _ _]
@@ -3537,9 +3574,12 @@
 (defn elide-analyzer-meta [m]
   (dissoc m ::analyzed))
 
+(defn elide-irrelevant-meta [m]
+  (-> m elide-reader-meta elide-analyzer-meta))
+
 (defn analyze-wrap-meta [expr]
   (let [form (:form expr)
-        m    (-> (meta form) elide-reader-meta elide-analyzer-meta)]
+        m    (elide-irrelevant-meta (meta form))]
     (if (some? (seq m))
       (let [env (:env expr) ; take on expr's context ourselves
             expr (assoc-in expr [:env :context] :expr) ; change expr to :expr
