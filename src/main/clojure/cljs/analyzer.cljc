@@ -1983,7 +1983,7 @@
     {:op op
      :env encl-env
      :bindings bes
-     :expr expr
+     :body expr
      :form form
      :children children}))
 
