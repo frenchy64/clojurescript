@@ -185,7 +185,7 @@
               (fn [m]
                 (let [minfo (cond-> {:gcol (:gen-col m)
                                      :gline (:gen-line m)}
-                              (= (:op ast) :var)
+                              (#{:var :js-var :local} (:op ast))
                               (assoc :name (str (-> ast :info :name))))]
                   ; Dec the line/column numbers for 0-indexing.
                   ; tools.reader uses 1-indexed sources, chrome
@@ -354,7 +354,7 @@
 
 (defmethod emit* :no-op [m])
 
-(defmethod emit* :var
+(defn emit-var
   [{:keys [info env form] :as ast}]
   (if-let [const-expr (:const-expr ast)]
     (emit (assoc const-expr :env env))
@@ -398,6 +398,11 @@
 
                 (emits info)))))))))
 
+(defmethod emit* :var [expr] (emit-var expr))
+(defmethod emit* :js-var [expr] (emit-var expr))
+(defmethod emit* :local [expr] (emit-var expr))
+(defmethod emit* :binding [expr] (emit-var expr))
+
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
   {:pre [(ana/ast? sym) (ana/ast? meta)]}
@@ -415,7 +420,7 @@
 
 (defn distinct-keys? [keys]
   (and (every? #(= (:op %) :const) keys)
-       (= (count (into #{} keys)) (count keys))))
+       (apply distinct? (map :val keys))))
 
 (defmethod emit* :map
   [{:keys [env keys vals]}]
@@ -475,7 +480,12 @@
 
       :else (emits "cljs.core.PersistentHashSet.createAsIfByAssoc([" (comma-sep items) "])"))))
 
-(defmethod emit* :js-value
+(declare emit-js-value)
+
+(defmethod emit* :js-array [ast] (emit-js-value ast))
+(defmethod emit* :js-object [ast] (emit-js-value ast))
+
+(defn emit-js-value
   [{:keys [items js-type env]}]
   (emit-wrap env
     (if (= js-type :object)
@@ -498,6 +508,11 @@
   [{:keys [form env]}]
   (when-not (= :statement (:context env))
     (emit-wrap env (emit-constant form))))
+
+(defmethod emit* :quote
+  [{:keys [expr]}]
+  {:pre [(ana/ast? expr)]}
+  (emit expr))
 
 (defn truthy-constant? [{:keys [op form const-expr]}]
   (or (and (= op :const)
@@ -534,7 +549,7 @@
           (emitln then "} else {")
           (emitln else "}"))))))
 
-(defmethod emit* :case*
+(defmethod emit* :case
   [{:keys [v tests thens default env]}]
   (when (= (:context env) :expr)
     (emitln "(function(){"))
@@ -559,7 +574,7 @@
       (emitln "return " gs ";})()"))))
 
 (defmethod emit* :throw
-  [{:keys [throw env]}]
+  [{throw :exception :keys [env]}]
   (if (= :expr (:context env))
     (emits "(function(){throw " throw "})()")
     (emitln "throw " throw ";")))
@@ -686,7 +701,7 @@
              (pr-str define))))))
 
 (defmethod emit* :def
-  [{:keys [name var init env doc jsdoc export test var-ast]}]
+  [{var-ast :var :keys [name var init env doc jsdoc export test]}]
   ;; We only want to emit if an init is supplied, this is to avoid dead code
   ;; elimination issues. The REPL is the exception to this rule.
   (when (or init (:def-emits-var env))
@@ -765,7 +780,7 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity]}]
+  [{expr :body :keys [type name variadic params env recurs max-fixed-arity]}]
   (emit-wrap env
     (emits "(function " (munge name) "(")
     (emit-fn-params params)
@@ -794,7 +809,7 @@
     a))
 
 (defn emit-variadic-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity] :as f}]
+  [{expr :body :keys [type name variadic params env recurs max-fixed-arity] :as f}]
   (emit-wrap env
     (let [name (or name (gensym))
           mname (munge name)
@@ -933,7 +948,7 @@
     (when (and statements (= :expr context)) (emitln "})()"))))
 
 (defmethod emit* :try
-  [{:keys [env try catch name finally]}]
+  [{try :body :keys [env catch name finally]}]
   (let [context (:context env)]
     (if (or name finally)
       (do
@@ -950,7 +965,7 @@
       (emits try))))
 
 (defn emit-let
-  [{:keys [bindings expr env]} is-loop]
+  [{expr :body :keys [bindings env]} is-loop]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
     (binding [*lexical-renames*
@@ -990,7 +1005,7 @@
     (emitln "continue;")))
 
 (defmethod emit* :letfn
-  [{:keys [bindings expr env]}]
+  [{expr :body :keys [bindings env]}]
   (let [context (:context env)]
     (when (= :expr context) (emits "(function (){"))
     (doseq [{:keys [init] :as binding} bindings]
@@ -1005,7 +1020,7 @@
             "$")))
 
 (defmethod emit* :invoke
-  [{:keys [f args env] :as expr}]
+  [{f :fn :keys [args env] :as expr}]
   (let [info (:info f)
         fn? (and ana/*cljs-static-fns*
                  (not (:dynamic info))
@@ -1234,7 +1249,7 @@
     (emitln "});")
     (emit body)))
 
-(defmethod emit* :dot
+(defn emit-dot
   [{:keys [target field method args env]}]
   (emit-wrap env
     (if field
@@ -1242,6 +1257,9 @@
       (emits target "." (munge method #{}) "("
         (comma-sep args)
         ")"))))
+
+(defmethod emit* :host-field [ast] (emit-dot ast))
+(defmethod emit* :host-call [ast] (emit-dot ast))
 
 (defmethod emit* :js
   [{:keys [op env code segs args]}]
