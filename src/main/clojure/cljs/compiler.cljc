@@ -499,6 +499,10 @@
   (when-not (= :statement (:context env))
     (emit-wrap env (emit-constant form))))
 
+(defmethod emit* :quote
+  [{:keys [expr]}]
+  (emit expr))
+
 (defn truthy-constant? [{:keys [op form const-expr]}]
   (or (and (= op :const)
            form

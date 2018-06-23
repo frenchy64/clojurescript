@@ -2019,8 +2019,15 @@
       :children exprs)))
 
 (defmethod parse 'quote
-  [_ env [_ x] _ _]
-  (analyze (assoc env :quoted? true) x))
+  [_ env [_ & [x & more :as args] :as form] _ _]
+  (when (or more (not args))
+    (throw (error env "Wrong number of args to quote")))
+  (let [expr (analyze (assoc env :quoted? true) x)]
+    {:op :quote
+     :expr expr
+     :env env
+     :form form
+     :children [expr]}))
 
 (defmethod parse 'new
   [_ env [_ ctor & args :as form] _ _]
