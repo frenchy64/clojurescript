@@ -3065,7 +3065,7 @@
                c-1   (core/dec (count sig))
                meta  (assoc meta
                        :top-fn
-                       {:variadic true
+                       {:variadic? true
                         :max-fixed-arity c-1
                         :method-params [sig]
                         :arglists (core/list arglist)
@@ -3119,7 +3119,7 @@
                             [(core/- (count (first (filter varsig? arglists))) 2)]))
                meta     (assoc meta
                           :top-fn
-                          {:variadic variadic
+                          {:variadic? variadic
                            :max-fixed-arity maxfa
                            :method-params sigs
                            :arglists arglists

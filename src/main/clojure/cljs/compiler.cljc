@@ -765,7 +765,7 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{expr :body :keys [type name variadic params env recurs]}]
+  [{expr :body :keys [type name params env recurs]}]
   (emit-wrap env
     (emits "(function " (munge name) "(")
     (emit-fn-params params)
@@ -794,7 +794,7 @@
     a))
 
 (defn emit-variadic-fn-method
-  [{expr :body max-fixed-arity :fixed-arity :keys [type name variadic params env recurs] :as f}]
+  [{expr :body max-fixed-arity :fixed-arity variadic :variadic? :keys [type name params env recurs] :as f}]
   (emit-wrap env
     (let [name (or name (gensym))
           mname (munge name)
@@ -844,7 +844,7 @@
       (emitln "})()"))))
 
 (defmethod emit* :fn
-  [{:keys [name env methods max-fixed-arity variadic recur-frames loop-lets]}]
+  [{variadic :variadic? :keys [name env methods max-fixed-arity recur-frames loop-lets]}]
   ;;fn statements get erased, serve no purpose and can pollute scope if named
   (when-not (= :statement (:context env))
     (let [loop-locals (->> (concat (mapcat :params (filter #(and % @(:flag %)) recur-frames))
@@ -876,7 +876,7 @@
           (emitln "var " mname " = null;")
           (doseq [[n meth] ms]
             (emits "var " n " = ")
-            (if (:variadic meth)
+            (if (:variadic? meth)
               (emit-variadic-fn-method meth)
               (emit-fn-method meth))
             (emitln ";"))
@@ -889,7 +889,7 @@
             (emitln " = var_args;"))
           (emitln "switch(arguments.length){")
           (doseq [[n meth] ms]
-            (if (:variadic meth)
+            (if (:variadic? meth)
               (do (emitln "default:")
                   (let [restarg (munge (gensym))]
                     (emitln "var " restarg " = null;")
@@ -913,10 +913,10 @@
           (emitln "};")
           (when variadic
             (emitln mname ".cljs$lang$maxFixedArity = " max-fixed-arity ";")
-            (emitln mname ".cljs$lang$applyTo = " (some #(let [[n m] %] (when (:variadic m) n)) ms) ".cljs$lang$applyTo;"))
+            (emitln mname ".cljs$lang$applyTo = " (some #(let [[n m] %] (when (:variadic? m) n)) ms) ".cljs$lang$applyTo;"))
           (doseq [[n meth] ms]
             (let [c (count (:params meth))]
-              (if (:variadic meth)
+              (if (:variadic? meth)
                 (emitln mname ".cljs$core$IFn$_invoke$arity$variadic = " n ".cljs$core$IFn$_invoke$arity$variadic;")
                 (emitln mname ".cljs$core$IFn$_invoke$arity$" c " = " n ";"))))
           (emitln "return " mname ";")
@@ -1039,7 +1039,7 @@
         [f variadic-invoke]
         (if fn?
           (let [arity (count args)
-                variadic? (:variadic info)
+                variadic? (:variadic? info)
                 mps (:method-params info)
                 mfa (:max-fixed-arity info)]
             (cond
