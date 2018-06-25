@@ -1306,7 +1306,7 @@
         :let      (infer-tag env (:body e))
         :loop     (infer-tag env (:body e))
         :do       (infer-tag env (:ret e))
-        :fn-method   (infer-tag env (:expr e))
+        :fn-method (infer-tag env (:body e))
         :def      (infer-tag env (:init e))
         :invoke   (infer-invoke env e)
         :if       (infer-if env e)
@@ -1726,7 +1726,7 @@
      :max-fixed-arity fixed-arity
      :type type
      :form form
-     :expr expr
+     :body expr
      :recurs recurs}))
 
 (declare analyze-wrap-meta)
@@ -1802,7 +1802,7 @@
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
-        children     (mapv :expr methods)
+        children     (mapv :body methods)
         ast          {:op :fn
                       :env env
                       :form form
