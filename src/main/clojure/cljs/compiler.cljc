@@ -542,7 +542,7 @@
           (emitln then "} else {")
           (emitln else "}"))))))
 
-(defmethod emit* :case*
+(defmethod emit* :case
   [{:keys [v tests thens default env]}]
   (when (= (:context env) :expr)
     (emitln "(function(){"))

@@ -1402,7 +1402,7 @@
                              ((some-fn number? string? char?) (:form t)))))
               (apply concat tests))
       "case* tests must be numbers, strings, or constants")
-    {:env env :op :case* :form form
+    {:env env :op :case :form form
      :v v :tests tests :thens thens :default default
      :children (vec (concat [v] tests thens (if default [default])))}))
 
