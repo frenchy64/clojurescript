@@ -1225,7 +1225,7 @@
     (some
       (fn [m]
         (and (or (== (:fixed-arity m) c)
-                 (:variadic m))
+                 (:variadic? m))
              m))
       methods)))
 
@@ -1627,7 +1627,7 @@
                    :protocol-inline (:protocol-inline init-expr)}
                   (if-some [top-fn-meta (:top-fn sym-meta)]
                     top-fn-meta
-                    {:variadic (:variadic init-expr)
+                    {:variadic? (:variadic? init-expr)
                      :max-fixed-arity (:max-fixed-arity init-expr)
                      :method-params params
                      :arglists (:arglists sym-meta)
@@ -1721,7 +1721,7 @@
         recurs          @(:flag recur-frame)]
     {:env env
      :op :fn-method
-     :variadic variadic
+     :variadic? variadic
      :params params
      :fixed-arity fixed-arity
      :type type
@@ -1785,12 +1785,12 @@
                         :protocol-inline proto-inline})
         methods      (map #(disallowing-ns* (analyze-fn-method menv locals % type (nil? name))) meths)
         mfa          (apply max (map :fixed-arity methods))
-        variadic     (boolean (some :variadic methods))
+        variadic     (boolean (some :variadic? methods))
         locals       (if named-fn?
                        (update-in locals [name] assoc
                          ;; TODO: can we simplify? - David
                          :fn-var true
-                         :variadic variadic
+                         :variadic? variadic
                          :max-fixed-arity mfa
                          :method-params (map :params methods))
                        locals)
@@ -1808,7 +1808,7 @@
                       :form form
                       :name name-var
                       :methods methods
-                      :variadic variadic
+                      :variadic? variadic
                       :tag 'function
                       :recur-frames *recur-frames*
                       :loop-lets *loop-lets*
@@ -1817,7 +1817,7 @@
                       :protocol-impl proto-impl
                       :protocol-inline proto-inline
                       :children children}]
-    (let [variadic-methods (filter :variadic methods)
+    (let [variadic-methods (filter :variadic? methods)
           variadic-params  (count (:params (first variadic-methods)))
           param-counts     (map (comp count :params) methods)]
       (when (< 1 (count variadic-methods))
@@ -1847,7 +1847,7 @@
                               :column (get-col n env)
                               :local true
                               :shadow (locals n)
-                              :variadic (:variadic fexpr)
+                              :variadic? (:variadic? fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
                               :method-params (map :params (:methods fexpr))}
                              ret-tag (assoc :ret-tag ret-tag))]
@@ -1862,7 +1862,7 @@
                         fexpr (analyze env (n->fexpr name))
                         be' (assoc be
                               :init fexpr
-                              :variadic (:variadic fexpr)
+                              :variadic? (:variadic? fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
                               :method-params (map :params (:methods fexpr)))]
                     [(assoc-in env [:locals name] be')
@@ -1944,7 +1944,7 @@
                      ;; TODO: can we simplify - David
                      (merge be
                        {:fn-var true
-                        :variadic (:variadic init-expr)
+                        :variadic? (:variadic? init-expr)
                         :max-fixed-arity (:max-fixed-arity init-expr)
                         :method-params (map :params (:methods init-expr))})
                      be)]
@@ -3156,7 +3156,7 @@
         bind-args? (and HO-invoke?
                         (not (all-values? args)))]
     (when ^boolean fn-var?
-      (let [{:keys [^boolean variadic max-fixed-arity method-params name ns macro]} (:info fexpr)]
+      (let [{^boolean variadic :variadic? :keys [max-fixed-arity method-params name ns macro]} (:info fexpr)]
         ;; don't warn about invalid arity when when compiling a macros namespace
         ;; that requires itself, as that code is not meant to be executed in the
         ;; `$macros` ns - António Monteiro
