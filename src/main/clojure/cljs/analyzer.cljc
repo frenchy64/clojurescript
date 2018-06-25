@@ -1289,7 +1289,7 @@
                         (when (= 'js (:ns info)) 'js))]
       ret-tag
       (let [args (:args e)
-            me (assoc (find-matching-method f args) :op :method)]
+            me (assoc (find-matching-method f args) :op :fn-method)]
         (if-some [ret-tag (infer-tag env me)]
           ret-tag
           ANY_SYM)))))
@@ -1306,7 +1306,7 @@
         :let      (infer-tag env (:body e))
         :loop     (infer-tag env (:body e))
         :do       (infer-tag env (:ret e))
-        :method   (infer-tag env (:expr e))
+        :fn-method   (infer-tag env (:expr e))
         :def      (infer-tag env (:init e))
         :invoke   (infer-invoke env e)
         :if       (infer-if env e)
@@ -1720,6 +1720,7 @@
                           (analyze-fn-method-body body-env body-form recur-frames))
         recurs          @(:flag recur-frame)]
     {:env env
+     :op :fn-method
      :variadic variadic
      :params params
      :max-fixed-arity fixed-arity
