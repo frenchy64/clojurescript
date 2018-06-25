@@ -1224,7 +1224,7 @@
         c       (count params)]
     (some
       (fn [m]
-        (and (or (== (:max-fixed-arity m) c)
+        (and (or (== (:fixed-arity m) c)
                  (:variadic m))
              m))
       methods)))
@@ -1723,7 +1723,7 @@
      :op :fn-method
      :variadic variadic
      :params params
-     :max-fixed-arity fixed-arity
+     :fixed-arity fixed-arity
      :type type
      :form form
      :body expr
@@ -1784,7 +1784,7 @@
                        {:protocol-impl proto-impl
                         :protocol-inline proto-inline})
         methods      (map #(disallowing-ns* (analyze-fn-method menv locals % type (nil? name))) meths)
-        mfa          (apply max (map :max-fixed-arity methods))
+        mfa          (apply max (map :fixed-arity methods))
         variadic     (boolean (some :variadic methods))
         locals       (if named-fn?
                        (update-in locals [name] assoc
