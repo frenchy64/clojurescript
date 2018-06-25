@@ -3443,18 +3443,26 @@
 (defn analyze-js-value
   [env ^JSValue form]
   (let [val (.-val form)
-        expr-env (assoc env :context :expr)
-        items (if (map? val)
-                (zipmap (keys val)
-                        (disallowing-recur (doall (map #(analyze expr-env %) (vals val)))))
-                (disallowing-recur (doall (map #(analyze expr-env %) val))))]
-    {:op :js-value
-     :js-type (if (map? val) :object :array)
-     :env env
-     :form form
-     :items items
-     :children items
-     :tag (if (map? val) 'object 'array)}))
+        expr-env (assoc env :context :expr)]
+    (if (map? val)
+      (let [keys (vec (keys val))
+            vals (disallowing-recur
+                   (mapv #(analyze expr-env %) (vals val)))]
+        {:op :js-object
+         :env env
+         :form form
+         :keys keys
+         :vals vals
+         :children vals
+         :tag 'object})
+      (let [items (disallowing-recur
+                    (mapv #(analyze expr-env %) val))]
+        {:op :js-array
+         :env env
+         :form form
+         :items items
+         :children items
+         :tag 'array}))))
 
 (defn analyze-record
   [env x]
