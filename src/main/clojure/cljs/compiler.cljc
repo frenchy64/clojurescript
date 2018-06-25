@@ -765,7 +765,7 @@
       (emits ","))))
 
 (defn emit-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity]}]
+  [{expr :body :keys [type name variadic params env recurs max-fixed-arity]}]
   (emit-wrap env
     (emits "(function " (munge name) "(")
     (emit-fn-params params)
@@ -794,7 +794,7 @@
     a))
 
 (defn emit-variadic-fn-method
-  [{:keys [type name variadic params expr env recurs max-fixed-arity] :as f}]
+  [{expr :body :keys [type name variadic params env recurs max-fixed-arity] :as f}]
   (emit-wrap env
     (let [name (or name (gensym))
           mname (munge name)
