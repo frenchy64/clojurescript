@@ -1411,6 +1411,10 @@
 
 (defmethod parse 'var
   [op env [_ sym :as form] _ _]
+  (when (not= 2 (count form))
+    (throw (error env "Wrong number of args to var")))
+  (when-not (symbol? sym)
+    (throw (error env "Argument to var must be symbol")))
   (merge
     {:env env
      :op :the-var
