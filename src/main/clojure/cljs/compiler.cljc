@@ -1234,7 +1234,7 @@
     (emitln "});")
     (emit body)))
 
-(defmethod emit* :dot
+(defn emit-dot
   [{:keys [target field method args env]}]
   (emit-wrap env
     (if field
@@ -1242,6 +1242,9 @@
       (emits target "." (munge method #{}) "("
         (comma-sep args)
         ")"))))
+
+(defmethod emit* :host-field [ast] (emit-dot ast))
+(defmethod emit* :host-call [ast] (emit-dot ast))
 
 (defmethod emit* :js
   [{:keys [op env code segs args]}]

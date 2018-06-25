@@ -1317,7 +1317,7 @@
         :var      (if-some [init (:init e)]
                     (infer-tag env init)
                     (infer-tag env (:info e)))
-        :dot      ANY_SYM
+        (:host-field :host-call)      ANY_SYM
         :js       ANY_SYM
         nil)))
 
@@ -2959,7 +2959,7 @@
             (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))))
     (case dot-action
       ::access (let [children [targetexpr]]
-                 {:op :dot
+                 {:op :host-field
                   :env env
                   :form form
                   :target targetexpr
@@ -2970,7 +2970,7 @@
                          tag)})
       ::call   (let [argexprs (map #(analyze enve %) args)
                      children (into [targetexpr] argexprs)]
-                 {:op :dot
+                 {:op :host-call
                   :env env
                   :form form
                   :target targetexpr
