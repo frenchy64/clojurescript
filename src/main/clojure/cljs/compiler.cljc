@@ -543,7 +543,7 @@
           (emitln else "}"))))))
 
 (defmethod emit* :case
-  [{:keys [v tests thens default env]}]
+  [{v :test :keys [tests thens default env]}]
   (when (= (:context env) :expr)
     (emitln "(function(){"))
   (let [gs (gensym "caseval__")]
