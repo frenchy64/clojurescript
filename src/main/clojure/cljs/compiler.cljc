@@ -186,7 +186,7 @@
               (fn [m]
                 (let [minfo (cond-> {:gcol (:gen-col m)
                                      :gline (:gen-line m)}
-                              (= (:op ast) :var)
+                              (#{:var :js-var :local} (:op ast))
                               (assoc :name (str (-> ast :info :name))))]
                   ; Dec the line/column numbers for 0-indexing.
                   ; tools.reader uses 1-indexed sources, chrome
@@ -398,7 +398,7 @@
 
 (defmethod emit* :no-op [m])
 
-(defmethod emit* :var
+(defn emit-var
   [{:keys [info env form] :as ast}]
   (if-let [const-expr (:const-expr ast)]
     (emit (assoc const-expr :env env))
@@ -441,6 +441,11 @@
                   (emits info))
 
                 (emits info)))))))))
+
+(defmethod emit* :var [expr] (emit-var expr))
+(defmethod emit* :js-var [expr] (emit-var expr))
+(defmethod emit* :local [expr] (emit-var expr))
+(defmethod emit* :binding [expr] (emit-var expr))
 
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
@@ -767,7 +772,7 @@
              (pr-str define))))))
 
 (defmethod emit* :def
-  [{:keys [name var init env doc jsdoc export test var-ast]}]
+  [{var-ast :var :keys [name var init env doc jsdoc export test]}]
   ;; We only want to emit if an init is supplied, this is to avoid dead code
   ;; elimination issues. The REPL is the exception to this rule.
   (when (or init (:def-emits-var env))
