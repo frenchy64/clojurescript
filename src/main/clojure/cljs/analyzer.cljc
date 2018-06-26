@@ -1394,6 +1394,25 @@
         v        (disallowing-recur (analyze expr-env sym))
         tests    (mapv #(mapv (fn [t] (analyze expr-env t)) %) tests)
         thens    (mapv #(analyze env %) thens)
+        nodes    (mapv (fn [tests then]
+                         {:op :case-node
+                          ;synthetic node, no :form
+                          :env env
+                          :tests (mapv (fn [test]
+                                         {:op :case-test
+                                          :form (:form test)
+                                          :env expr-env
+                                          :test test
+                                          :children [test]})
+                                       tests)
+                          :then {:op :case-then
+                                 :form (:form then)
+                                 :env env
+                                 :then then
+                                 :children [then]}
+                          :children (conj tests then)})
+                       tests
+                       thens)
         default  (analyze env default)]
     (assert (every? (fn [t]
                       (or
@@ -1403,8 +1422,8 @@
               (apply concat tests))
       "case* tests must be numbers, strings, or constants")
     {:env env :op :case :form form
-     :test v :tests tests :thens thens :default default
-     :children (vec (concat [v] tests thens (if default [default])))}))
+     :test v :nodes nodes :default default
+     :children (vec (concat [v] nodes [default]))}))
 
 (defmethod parse 'throw
   [op env [_ throw-form :as form] name _]

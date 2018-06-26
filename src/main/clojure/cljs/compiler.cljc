@@ -543,15 +543,15 @@
           (emitln else "}"))))))
 
 (defmethod emit* :case
-  [{v :test :keys [tests thens default env]}]
+  [{v :test :keys [nodes default env]}]
   (when (= (:context env) :expr)
     (emitln "(function(){"))
   (let [gs (gensym "caseval__")]
     (when (= :expr (:context env))
       (emitln "var " gs ";"))
     (emitln "switch (" v ") {")
-    (doseq [[ts then] (partition 2 (interleave tests thens))]
-      (doseq [test ts]
+    (doseq [{ts :tests {:keys [then]} :then} nodes]
+      (doseq [test (map :test ts)]
         (emitln "case " test ":"))
       (if (= :expr (:context env))
         (emitln gs "=" then)
