@@ -935,10 +935,10 @@
 (defmethod emit* :do
   [{:keys [statements ret env]}]
   (let [context (:context env)]
-    (when (and statements (= :expr context)) (emitln "(function (){"))
+    (when (and (seq statements) (= :expr context)) (emitln "(function (){"))
     (doseq [s statements] (emitln s))
     (emit ret)
-    (when (and statements (= :expr context)) (emitln "})()"))))
+    (when (and (seq statements) (= :expr context)) (emitln "})()"))))
 
 (defmethod emit* :try
   [{try :body :keys [env catch name finally]}]
