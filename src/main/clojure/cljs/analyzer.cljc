@@ -2058,7 +2058,7 @@
      (when (and (not (-> ctor meta :internal-ctor))
                 (some? known-num-fields) (not= known-num-fields argc))
        (warning :fn-arity env {:argc argc :ctor ctor}))
-     {:env env :op :new :form form :ctor ctorexpr :args argexprs
+     {:env env :op :new :form form :class ctorexpr :args argexprs
       :children (into [ctorexpr] argexprs)
       :tag (let [name (-> ctorexpr :info :name)]
              (or ('{js/Object object

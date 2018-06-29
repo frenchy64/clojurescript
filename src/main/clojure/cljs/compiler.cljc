@@ -1117,7 +1117,7 @@
          (emits f ".call(" (comma-sep (cons "null" args)) ")"))))))
 
 (defmethod emit* :new
-  [{:keys [ctor args env]}]
+  [{ctor :class :keys [args env]}]
   (emit-wrap env
              (emits "(new " ctor "("
                     (comma-sep args)
