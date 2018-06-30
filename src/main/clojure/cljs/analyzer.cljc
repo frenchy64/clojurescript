@@ -2014,7 +2014,8 @@
                        (some? *loop-lets*) (cons {:params bes} *loop-lets*))
         expr         (analyze-let-body env context exprs recur-frames loop-lets)
         op           (if (true? is-loop) :loop :let)
-        children     (conj (vec (map :init bes)) expr)]
+        children     [:bindings :body]]
+    (assert (vector? bes))
     {:op op
      :env encl-env
      :bindings bes
