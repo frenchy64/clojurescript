@@ -1908,17 +1908,17 @@
      :children [:bindings :body]}))
 
 (defn analyze-do-statements* [env exprs]
-  (seq (doall (map #(analyze (assoc env :context :statement) %) (butlast exprs)))))
+  (mapv #(analyze (assoc env :context :statement) %) (butlast exprs)))
 
 (defn analyze-do-statements [env exprs]
   (disallowing-recur (analyze-do-statements* env exprs)))
 
 (defmethod parse 'do
   [op env [_ & exprs :as form] _ _]
-  (let [statements (analyze-do-statements env exprs)]
+  (let [statements (analyze-do-statements env exprs)
+        children [:statements :ret]]
     (if (<= (count exprs) 1)
-      (let [ret      (analyze env (first exprs))
-            children (conj (vec statements) ret)]
+      (let [ret      (analyze env (first exprs))]
         {:op :do
          :env env
          :form form
@@ -1927,8 +1927,7 @@
       (let [ret-env  (if (= :statement (:context env))
                        (assoc env :context :statement)
                        (assoc env :context :return))
-            ret      (analyze ret-env (last exprs))
-            children (conj (vec statements) ret)]
+            ret      (analyze ret-env (last exprs))]
         {:op :do
          :env env
          :form form
