@@ -28,6 +28,7 @@
                      [cljs.tools.reader :as reader]
                      [cljs.env :as env]
                      [cljs.analyzer :as ana]
+                     [cljs.tagged-literals :as tags]
                      [cljs.source-map :as sm]))
   #?(:clj (:import java.lang.StringBuilder
                    java.io.File)
@@ -230,6 +231,24 @@
    (defmulti emit-constant class)
    :cljs
    (defmulti emit-constant type))
+
+#?(:cljs
+   (do
+     (defn prn-dbg [& args]
+       (binding [*print-fn* *print-fn*
+                 *print-newline* *print-newline*]
+         (enable-console-print!)
+         (apply prn args)))
+
+     (defmulti test-jsvalue type)
+     (defmethod test-jsvalue tags/JSValue
+       [v]
+       (prn-dbg "COMPILER JSValue dispatch worked!"))
+
+     (defmethod test-jsvalue :default
+       [x]
+       (when (instance? cljs.tagged-literals/JSValue x)
+         (prn-dbg "COMPILER JSValue dispatch failed")))))
 
 (defmethod emit-constant :default
   [x]
@@ -476,7 +495,8 @@
       :else (emits "cljs.core.PersistentHashSet.createAsIfByAssoc([" (comma-sep items) "])"))))
 
 (defmethod emit* :js-value
-  [{:keys [items js-type env]}]
+  [{:keys [items js-type env form]}]
+  #?(:cljs (test-jsvalue form))
   (emit-wrap env
     (if (= js-type :object)
       (do

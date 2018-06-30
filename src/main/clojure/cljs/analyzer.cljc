@@ -3439,8 +3439,27 @@
         items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
     (analyze-wrap-meta {:op :set :env env :form form :items items :children items :tag 'cljs.core/ISet})))
 
+#?(:cljs
+   (do
+     (defn prn-dbg [& args]
+       (binding [*print-fn* *print-fn*
+                 *print-newline* *print-newline*]
+         (enable-console-print!)
+         (apply prn args)))
+
+     (defmulti test-jsvalue type)
+     (defmethod test-jsvalue tags/JSValue
+       [v]
+       (prn-dbg "ANALYZER JSValue dispatch worked!"))
+
+     (defmethod test-jsvalue :default
+       [x]
+       (when (instance? cljs.tagged-literals/JSValue x)
+         (prn-dbg "ANALYZER JSValue dispatch failed")))))
+
 (defn analyze-js-value
   [env ^JSValue form]
+  #?(:cljs (test-jsvalue form))
   (let [val (.-val form)
         expr-env (assoc env :context :expr)
         items (if (map? val)
