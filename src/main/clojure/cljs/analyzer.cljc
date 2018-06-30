@@ -1699,7 +1699,7 @@
             {:tag tag}))
         (when (true? dynamic) {:dynamic true})
         (when (some? export-as) {:export export-as})
-        (when (some? init-expr) {:children [init-expr]})))))
+        (when (some? init-expr) {:children [#_:var :init]})))))
 
 (defn analyze-fn-method-param [env]
   (fn [[locals params] name]
