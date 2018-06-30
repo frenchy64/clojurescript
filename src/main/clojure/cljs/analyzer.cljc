@@ -1905,7 +1905,7 @@
           [meth-env []] bes)
         expr (analyze (assoc meth-env :context (if (= :expr context) :return context)) `(do ~@exprs))]
     {:env env :op :letfn :bindings bes :body expr :form form
-     :children (conj (vec (map :init bes)) expr)}))
+     :children [:bindings :body]}))
 
 (defn analyze-do-statements* [env exprs]
   (seq (doall (map #(analyze (assoc env :context :statement) %) (butlast exprs)))))
