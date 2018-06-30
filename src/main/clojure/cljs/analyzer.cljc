@@ -3460,8 +3460,8 @@
 (defn analyze-list
   [env form]
   (let [expr-env (assoc env :context :expr)
-        items (disallowing-recur (doall (map #(analyze expr-env %) form)))]
-    (analyze-wrap-meta {:op :list :env env :form form :items items :children items :tag 'cljs.core/IList})))
+        items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
+    (analyze-wrap-meta {:op :list :env env :form form :items items :children [:items] :tag 'cljs.core/IList})))
 
 (defn analyze-vector
   [env form]
