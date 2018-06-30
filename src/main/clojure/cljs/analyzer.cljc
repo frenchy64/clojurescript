@@ -3488,7 +3488,7 @@
          :form form
          :keys keys
          :vals vals
-         :children vals
+         :children [:vals]
          :tag 'object})
       (let [items (disallowing-recur
                     (mapv #(analyze expr-env %) val))]
@@ -3496,7 +3496,7 @@
          :env env
          :form form
          :items items
-         :children items
+         :children [:items]
          :tag 'array}))))
 
 (defn analyze-record
