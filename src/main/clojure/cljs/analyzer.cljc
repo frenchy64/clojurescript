@@ -2052,7 +2052,7 @@
     (assoc {:env env :op :recur :form form}
       :frame frame
       :exprs exprs
-      :children exprs)))
+      :children [:exprs])))
 
 (defmethod parse 'quote
   [_ env [_ x] _ _]
