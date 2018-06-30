@@ -1783,7 +1783,7 @@
       (merge name-var ret-tag))))
 
 (defn analyze-fn-methods-pass2* [menv locals type meths]
-  (doall (map #(analyze-fn-method menv locals % type true) meths)))
+  (mapv #(analyze-fn-method menv locals % type true) meths))
 
 (defn analyze-fn-methods-pass2 [menv locals type meths]
   (analyze-fn-methods-pass2* menv locals type meths))
@@ -1832,11 +1832,12 @@
                        ;; a second pass with knowledge of our function-ness/arity
                        ;; lets us optimize self calls
                        (disallowing-ns* (analyze-fn-methods-pass2 menv locals type meths))
-                       methods)
+                       (vec methods))
+        _ (assert (vector? methods))
         form         (vary-meta form dissoc ::protocol-impl ::protocol-inline ::type)
         js-doc       (when (true? variadic)
                        "@param {...*} var_args")
-        children     (mapv :body methods)
+        children     [:methods]
         ast          {:op :fn
                       :env env
                       :form form
