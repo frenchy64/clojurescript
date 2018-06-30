@@ -2075,7 +2075,7 @@
                 (some? known-num-fields) (not= known-num-fields argc))
        (warning :fn-arity env {:argc argc :ctor ctor}))
      {:env env :op :new :form form :class ctorexpr :args argexprs
-      :children (into [ctorexpr] argexprs)
+      :children [:class :args]
       :tag (let [name (-> ctorexpr :info :name)]
              (or ('{js/Object object
                     js/String string
