@@ -3515,7 +3515,7 @@
      :env env
      :form x
      :items items
-     :children [items]
+     :children [:items]
      :tag (symbol (str ns) (str name))}))
 
 (defn elide-reader-meta [m]
