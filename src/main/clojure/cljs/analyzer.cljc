@@ -3454,7 +3454,7 @@
         vs (disallowing-recur (vec (map #(analyze expr-env %) (vals form))))]
     (analyze-wrap-meta {:op :map :env env :form form
                         :keys ks :vals vs
-                        :children (vec (interleave ks vs))
+                        :children [:keys :vals]
                         :tag 'cljs.core/IMap})))
 
 (defn analyze-list
