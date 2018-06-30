@@ -3119,7 +3119,7 @@
      :args argexprs
      :tag tag
      :form form
-     :children argexprs
+     :children [:args]
      :js-op js-op
      :numeric numeric}))
 
