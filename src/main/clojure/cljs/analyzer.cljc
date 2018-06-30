@@ -1494,7 +1494,7 @@
      :finally finally
      :name e
      :catch catch
-     :children [try catch finally]}))
+     :children [:body :catch :finally]}))
 
 (defn valid-proto [x]
   (when (symbol? x) x))
