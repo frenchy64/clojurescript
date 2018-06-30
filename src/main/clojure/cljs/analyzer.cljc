@@ -2134,7 +2134,7 @@
 
           :else
           {:env env :op :set! :form form :target texpr :val vexpr
-           :children [texpr vexpr]})))))
+           :children [:target :val]})))))
 
 #?(:clj (declare analyze-file))
 
