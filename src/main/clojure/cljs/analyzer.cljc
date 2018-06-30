@@ -2993,7 +2993,7 @@
           (swap! env/*compiler* update-in
             (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))))
     (case dot-action
-      ::access (let [children [targetexpr]]
+      ::access (let [children [:target]]
                  {:op :host-field
                   :env env
                   :form form
@@ -3003,8 +3003,8 @@
                   :tag (if (js-tag? tag)
                          (or (js-tag (-> tag meta :prefix) :tag) tag)
                          tag)})
-      ::call   (let [argexprs (map #(analyze enve %) args)
-                     children (into [targetexpr] argexprs)]
+      ::call   (let [argexprs (mapv #(analyze enve %) args)
+                     children [:target :args]]
                  {:op :host-call
                   :env env
                   :form form
