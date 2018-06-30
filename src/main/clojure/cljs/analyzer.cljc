@@ -1433,7 +1433,7 @@
   (let [throw-expr (disallowing-recur (analyze (assoc env :context :expr) throw-form))]
     {:env env :op :throw :form form
      :exception throw-expr
-     :children [throw-expr]}))
+     :children [:exception]}))
 
 (defmethod parse 'try
   [op env [_ & body :as form] name _]
