@@ -1399,14 +1399,14 @@
                                           :form (:form test)
                                           :env expr-env
                                           :test test
-                                          :children [test]})
+                                          :children [:test]})
                                        tests)
                           :then {:op :case-then
                                  :form (:form then)
                                  :env env
                                  :then then
-                                 :children [then]}
-                          :children (conj tests then)})
+                                 :children [:then]}
+                          :children [:tests :then]})
                        tests
                        thens)
         default  (analyze env default)]
@@ -1419,7 +1419,7 @@
       "case* tests must be numbers, strings, or constants")
     {:env env :op :case :form form
      :test v :nodes nodes :default default
-     :children (vec (concat [v] nodes [default]))}))
+     :children [:test :nodes :default]}))
 
 (defmethod parse 'throw
   [op env [_ throw-form :as form] name _]
