@@ -1760,6 +1760,7 @@
      :type type
      :form form
      :body expr
+     :children [:params :body]
      :recurs recurs}))
 
 (declare analyze-wrap-meta)
