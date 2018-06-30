@@ -1380,7 +1380,7 @@
     {:env env :op :if :form form
      :test test-expr :then then-expr :else else-expr
      :unchecked *unchecked-if*
-     :children [test-expr then-expr else-expr]}))
+     :children [:test :then :else]}))
 
 (defmethod parse 'case*
   [op env [_ sym tests thens default :as form] name _]
