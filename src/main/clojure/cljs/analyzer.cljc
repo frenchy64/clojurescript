@@ -3224,7 +3224,7 @@
       (let [ana-expr #(analyze enve %)
             argexprs (map ana-expr args)]
         {:env env :op :invoke :form form :fn fexpr :args (vec argexprs)
-         :children (into [fexpr] argexprs)}))))
+         :children [:fn :args]}))))
 
 (defn parse-invoke
   [env form]
