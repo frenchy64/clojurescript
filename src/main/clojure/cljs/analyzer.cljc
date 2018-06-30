@@ -3473,7 +3473,7 @@
   [env form ]
   (let [expr-env (assoc env :context :expr)
         items (disallowing-recur (vec (map #(analyze expr-env %) form)))]
-    (analyze-wrap-meta {:op :set :env env :form form :items items :children items :tag 'cljs.core/ISet})))
+    (analyze-wrap-meta {:op :set :env env :form form :items items :children [:items] :tag 'cljs.core/ISet})))
 
 (defn analyze-js-value
   [env ^JSValue form]
