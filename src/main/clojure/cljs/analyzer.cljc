@@ -1506,11 +1506,25 @@
   (fn [env ast opts]
     (assoc ast :env new-env)))
 
+(defn ast-children [ast]
+	(mapcat (fn [c]
+            {:pre [(or (keyword? c)
+                       (map? c))]
+             :post [(every? map? %)]}
+            (if (map? c)
+              c
+              (let [g (get ast c)]
+                (cond
+                  (vector? g) g
+                  g [g]))))
+          (:children ast)))
+
+
 (defn constant-value?
   [{:keys [op] :as ast}]
   (or (= :const op)
       (and (#{:map :set :vector :list} op)
-           (every? constant-value? (:children ast)))))
+           (every? constant-value? (ast-children ast)))))
 
 (defmethod parse 'def
   [op env form _ _]
