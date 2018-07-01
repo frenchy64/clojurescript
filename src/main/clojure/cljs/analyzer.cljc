@@ -1946,6 +1946,7 @@
                   (let [env (assoc-in meth-env [:locals name] shadow)
                         fexpr (analyze env (n->fexpr name))
                         be' (assoc be
+                              :op :binding
                               :init fexpr
                               :variadic? (:variadic? fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
@@ -2020,7 +2021,7 @@
                     :shadow (-> env :locals name)
                     ;; Give let* bindings same shape as var so
                     ;; they get routed correctly in the compiler
-                    :op :var
+                    :op :binding
                     :env {:line line :column col}
                     :info {:name name
                            :shadow (-> env :locals name)}
