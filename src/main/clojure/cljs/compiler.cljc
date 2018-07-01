@@ -186,7 +186,7 @@
               (fn [m]
                 (let [minfo (cond-> {:gcol (:gen-col m)
                                      :gline (:gen-line m)}
-                              (= (:op ast) :var)
+                              (#{:var :local :js-var} (:op ast))
                               (assoc :name (str (-> ast :info :name))))]
                   ; Dec the line/column numbers for 0-indexing.
                   ; tools.reader uses 1-indexed sources, chrome
@@ -448,6 +448,8 @@
 
 (defmethod emit* :var [expr] (emit-var expr))
 (defmethod emit* :binding [expr] (emit-var expr))
+(defmethod emit* :js-var [expr] (emit-var expr))
+(defmethod emit* :local [expr] (emit-var expr))
 
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
@@ -1181,7 +1183,7 @@
        (emits f "(" (comma-sep args)  ")")
 
        :else
-       (if (and ana/*cljs-static-fns* (= (:op f) :var))
+       (if (and ana/*cljs-static-fns* (#{:var :local :js-var} (:op f)))
          ;; higher order case, static information missing
          (let [fprop (str ".cljs$core$IFn$_invoke$arity$" (count args))]
            (if ana/*fn-invoke-direct*

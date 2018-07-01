@@ -979,12 +979,14 @@
 
 (defmethod resolve* :js
   [env sym full-ns current-ns]
-  {:name (symbol (str full-ns) (str (name sym)))
+  {:op :js-var
+   :name (symbol (str full-ns) (str (name sym)))
    :ns full-ns})
 
 (defmethod resolve* :node
   [env sym full-ns current-ns]
-  {:name (symbol (str current-ns) (str (munge-node-lib full-ns) "." (name sym)))
+  {:op :js-var
+   :name (symbol (str current-ns) (str (munge-node-lib full-ns) "." (name sym)))
    :ns current-ns})
 
 (defmethod resolve* :global
@@ -993,7 +995,8 @@
     (when-not (has-extern? pre)
       (swap! env/*compiler* update-in
         (into [::namespaces current-ns :externs] pre) merge {}))
-    {:name (symbol (str current-ns) (str (munge-global-export full-ns) "." (name sym)))
+    {:op :js-var
+     :name (symbol (str current-ns) (str (munge-global-export full-ns) "." (name sym)))
      :ns current-ns
      :tag (with-meta 'js {:prefix pre})}))
 
@@ -1015,7 +1018,8 @@
       (warning :private-var-access env
         {:sym sym-name}))
     (merge sym-ast
-      {:name sym-name
+      {:op :var
+       :name sym-name
        :ns   full-ns})))
 
 (defn required? [ns env]
@@ -1036,14 +1040,17 @@
   (let [ns (resolve-ns-alias env ns)
         module-type (ns->module-type ns)]
     (case module-type
-      :js     {:name (symbol
+      :js     {:op :js-var
+               :name (symbol
                        (or (gets @env/*compiler* :js-module-index ns :name)
                            (resolve-ns-alias env ns)))
                :ns 'js}
-      :node   {:name (symbol (str current-ns)
+      :node   {:op :js-var
+               :name (symbol (str current-ns)
                        (munge-node-lib (resolve-ns-alias env ns)))
                :ns current-ns}
-      :global {:name (symbol (str current-ns)
+      :global {:op :js-var
+               :name (symbol (str current-ns)
                        (munge-global-export (resolve-ns-alias env ns)))
                :ns current-ns})))
 
@@ -1065,7 +1072,8 @@
              (swap! env/*compiler* update-in
                (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
            (merge
-             {:name sym
+             {:op :js-var
+              :name sym
               :ns   'js
               :tag  (with-meta (or (js-tag pre) (:tag (meta sym)) 'js) {:prefix pre})}
              (when-let [ret-tag (js-tag pre :ret-tag)]
@@ -1075,7 +1083,7 @@
              lb (get locals sym)
              current-ns (-> env :ns :name)]
          (cond
-           (some? lb) lb
+           (some? lb) (assoc lb :op :local)
 
            (some? (namespace sym))
            (let [ns      (namespace sym)
@@ -1098,9 +1106,11 @@
                  prefix (symbol (subs s 0 idx))
                  suffix (subs s (inc idx))]
              (if-some [lb (get locals prefix)]
-               {:name (symbol (str (:name lb)) suffix)}
+               {:op :local
+                :name (symbol (str (:name lb)) suffix)}
                (if-some [full-ns (gets @env/*compiler* ::namespaces current-ns :imports prefix)]
-                 {:name (symbol (str full-ns) suffix)}
+                 {:op :js-var
+                  :name (symbol (str full-ns) suffix)}
                  (if-some [info (gets @env/*compiler* ::namespaces current-ns :defs prefix)]
                    (merge info
                      {:name (symbol (str current-ns) (str sym))
@@ -1342,7 +1352,8 @@
                     false BOOLEAN_SYM
                     ANY_SYM)
         :quote    (infer-tag env (:expr e))
-        :var      (if-some [init (:init e)]
+        (:var :local :js-var :binding)
+                  (if-some [init (:init e)]
                     (infer-tag env init)
                     (infer-tag env (:info e)))
         (:host-field :host-call)      ANY_SYM
@@ -2133,7 +2144,7 @@
   (disallowing-recur
    (let [enve (assoc env :context :expr)
          ctorexpr (analyze enve ctor)
-         ctor-var (when (= (:op ctorexpr) :var)
+         ctor-var (when (#{:var :local :js-var} (:op ctorexpr))
                     (resolve-existing-var env ctor))
          record-args
          (when (and (:record ctor-var) (not (-> ctor meta :internal-ctor)))
@@ -3319,7 +3330,7 @@
           ret  {:env env :form sym}
           lcls (:locals env)]
       (if-some [lb (get lcls sym)]
-        (assoc ret :op :var :info lb)
+        (assoc ret :op :local :info lb)
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
               cur-ns (str (-> env :ns :name))
