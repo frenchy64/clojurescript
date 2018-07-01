@@ -1753,7 +1753,7 @@
                    (locals name))
           env    (merge (select-keys env [:context])
                    {:line line :column column})
-          param  {:op :var
+          param  {:op :binding
                   :name name
                   :line line
                   :column column
