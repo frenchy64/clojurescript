@@ -445,9 +445,10 @@
                (:use [clojure.set :only [intersection] :rename {intersection foo}])))))
     (is (= (e/with-compiler-env (atom {::a/namespaces
                                        {'foo.core {:renames '{foo clojure.set/intersection}}}})
-             (a/resolve-var {:ns {:name 'foo.core}} 'foo))
-            '{:name clojure.set/intersection
-              :ns   clojure.set}))
+             (select-keys (a/resolve-var {:ns {:name 'foo.core}} 'foo)
+                          [:name :ns]))
+           '{:name clojure.set/intersection
+             :ns   clojure.set}))
     (let [rwhen (e/with-compiler-env (atom (update-in @test-cenv [::a/namespaces]
                                              merge {'foo.core {:rename-macros '{always cljs.core/when}}}))
                   (a/resolve-macro-var {:ns {:name 'foo.core}} 'always))]
