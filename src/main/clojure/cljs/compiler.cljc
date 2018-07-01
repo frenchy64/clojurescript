@@ -405,7 +405,7 @@
 
 (defmethod emit* :no-op [m])
 
-(defmethod emit* :var
+(defn emit-var
   [{:keys [info env form] :as ast}]
   (if-let [const-expr (:const-expr ast)]
     (emit (assoc const-expr :env env))
@@ -448,6 +448,9 @@
                   (emits info))
 
                 (emits info)))))))))
+
+(defmethod emit* :var [expr] (emit-var expr))
+(defmethod emit* :binding [expr] (emit-var expr))
 
 (defmethod emit* :the-var
   [{:keys [env var sym meta] :as arg}]
