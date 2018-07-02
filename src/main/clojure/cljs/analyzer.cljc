@@ -1066,7 +1066,7 @@
          (cond
            (some? shadowed-by-local)
            (do (warning :js-shadowed-by-local env {:name sym})
-               (assoc shadowed-by-local :op :local))
+               shadowed-by-local)
 
            :else
            (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
@@ -1087,7 +1087,7 @@
              lb (get locals sym)
              current-ns (-> env :ns :name)]
          (cond
-           (some? lb) (assoc lb :op :local)
+           (some? lb) lb
 
            (some? (namespace sym))
            (let [ns      (namespace sym)
@@ -1757,7 +1757,7 @@
           {:children [:var]})))))
 
 (defn analyze-fn-method-param [env]
-  (fn [[locals params] name]
+  (fn [[locals params] [arg-id name]]
     (when (namespace name)
       (throw (error env (str "Can't use qualified name as parameter: " name))))
     (let [line   (get-line name env)
@@ -1774,6 +1774,8 @@
                   :column column
                   :tag tag
                   :shadow shadow
+                  :local :arg
+                  :arg-id arg-id
                   ;; Give the fn params the same shape
                   ;; as a :var, so it gets routed
                   ;; correctly in the compiler
@@ -1793,7 +1795,7 @@
         body            (next form)
         step            (analyze-fn-method-param env)
         step-init       [locals []]
-        [locals params] (reduce step step-init param-names)
+        [locals params] (reduce step step-init (map-indexed vector param-names))
         params'         (if (true? variadic)
                           (butlast params)
                           params)
@@ -1831,6 +1833,8 @@
                      (get-in env [:js-globals name]))
           fn-scope (:fn-scope env)
           name-var {:name name
+                    :op :binding
+                    :local :fn
                     :info {:fn-self-name true
                            :fn-scope fn-scope
                            :ns ns
@@ -1942,10 +1946,11 @@
                         fexpr (no-warn (analyze env (n->fexpr n)))
                         be (cond->
                              {:name n
+                              :op :binding
                               :fn-var true
                               :line (get-line n env)
                               :column (get-col n env)
-                              :local true
+                              :local :letfn
                               :shadow (locals n)
                               :variadic? (:variadic? fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
@@ -1961,7 +1966,6 @@
                   (let [env (assoc-in meth-env [:locals name] shadow)
                         fexpr (analyze env (n->fexpr name))
                         be' (assoc be
-                              :op :binding
                               :init fexpr
                               :variadic? (:variadic? fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
@@ -2013,7 +2017,7 @@
           tag
           (-> init-expr :info :tag))))
 
-(defn analyze-let-bindings* [encl-env bindings]
+(defn analyze-let-bindings* [encl-env bindings op]
   (loop [bes []
          env (assoc encl-env :context :expr)
          bindings (seq (partition 2 bindings))]
@@ -2032,7 +2036,7 @@
                     :column col
                     :init init-expr
                     :tag (get-let-tag name init-expr)
-                    :local true
+                    :local op
                     :shadow (-> env :locals name)
                     ;; Give let* bindings same shape as var so
                     ;; they get routed correctly in the compiler
@@ -2054,8 +2058,8 @@
               (next bindings))))
         [bes env])))
 
-(defn analyze-let-bindings [encl-env bindings]
-  (disallowing-recur (analyze-let-bindings* encl-env bindings)))
+(defn analyze-let-bindings [encl-env bindings op]
+  (disallowing-recur (analyze-let-bindings* encl-env bindings op)))
 
 (defn analyze-let-body* [env context exprs]
   (analyze (assoc env :context (if (= :expr context) :return context)) `(do ~@exprs)))
@@ -2070,7 +2074,8 @@
   (when-not (and (vector? bindings) (even? (count bindings)))
     (throw (error encl-env "bindings must be vector of even number of elements")))
   (let [context      (:context encl-env)
-        [bes env]    (analyze-let-bindings encl-env bindings)
+        op           (if (true? is-loop) :loop :let)
+        [bes env]    (analyze-let-bindings encl-env bindings op)
         recur-frame  (when (true? is-loop)
                        {:params bes :flag (atom nil)})
         recur-frames (if recur-frame
@@ -2080,7 +2085,6 @@
                        (true? is-loop) *loop-lets*
                        (some? *loop-lets*) (cons {:params bes} *loop-lets*))
         expr         (analyze-let-body env context exprs recur-frames loop-lets)
-        op           (if (true? is-loop) :loop :let)
         children     [:bindings :body]]
     {:op op
      :env encl-env
