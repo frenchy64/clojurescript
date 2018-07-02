@@ -1066,6 +1066,7 @@
          (cond
            (some? shadowed-by-local)
            (do (warning :js-shadowed-by-local env {:name sym})
+               (assert (:op shadowed-by-local))
                shadowed-by-local)
 
            :else
@@ -1087,7 +1088,7 @@
              lb (get locals sym)
              current-ns (-> env :ns :name)]
          (cond
-           (some? lb) lb
+           (some? lb) (assoc lb :op :local)
 
            (some? (namespace sym))
            (let [ns      (namespace sym)
@@ -1117,11 +1118,13 @@
                   :name (symbol (str full-ns) suffix)}
                  (if-some [info (gets @env/*compiler* ::namespaces current-ns :defs prefix)]
                    (merge info
-                     {:name (symbol (str current-ns) (str sym))
-                      :ns current-ns})
+                          {:op :var
+                           :name (symbol (str current-ns) (str sym))
+                           :ns current-ns})
                    (merge (gets @env/*compiler* ::namespaces prefix :defs (symbol suffix))
-                     {:name (if (= "" prefix) (symbol suffix) (symbol (str prefix) suffix))
-                      :ns prefix})))))
+                          {:op :var
+                           :name (if (= "" prefix) (symbol suffix) (symbol (str prefix) suffix))
+                           :ns prefix})))))
 
            (some? (gets @env/*compiler* ::namespaces current-ns :uses sym))
            (let [full-ns (gets @env/*compiler* ::namespaces current-ns :uses sym)]
@@ -1141,7 +1144,8 @@
              (when (some? confirm)
                (confirm env current-ns sym))
              (merge (gets @env/*compiler* ::namespaces current-ns :defs sym)
-               {:name (symbol (str current-ns) (str sym))
+               {:op :var
+                :name (symbol (str current-ns) (str sym))
                 :ns current-ns}))
 
            (core-name? env sym)
@@ -1149,7 +1153,8 @@
              (when (some? confirm)
                (confirm env 'cljs.core sym))
              (merge (gets @env/*compiler* ::namespaces 'cljs.core :defs sym)
-               {:name (symbol "cljs.core" (str sym))
+               {:op :var
+                :name (symbol "cljs.core" (str sym))
                 :ns 'cljs.core}))
 
            (invokeable-ns? s env)
@@ -1160,7 +1165,8 @@
              (when (some? confirm)
                (confirm env current-ns sym))
              (merge (gets @env/*compiler* ::namespaces current-ns :defs sym)
-               {:name (symbol (str current-ns) (str sym))
+               {:op :var
+                :name (symbol (str current-ns) (str sym))
                 :ns current-ns}))))))))
 
 (defn resolve-existing-var
@@ -3338,7 +3344,8 @@
           ret  {:env env :form sym}
           lcls (:locals env)]
       (if-some [lb (get lcls sym)]
-        (assoc ret :op :local :info lb)
+        (merge (assoc ret :op :local :info lb)
+               (select-keys lb [:name :local :arg-id :variadic?]))
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
               cur-ns (str (-> env :ns :name))
@@ -3355,13 +3362,16 @@
               info     (if-not (contains? sym-meta ::analyzed)
                          (resolve-existing-var env sym)
                          (resolve-var env sym))]
+          (assert (:op info) (:op info))
           (if-not (true? (:def-var env))
             (merge
-              (assoc ret :op :var :info info)
+              (assoc ret :info info)
+              (select-keys info [:op :name :ns :tag])
               (when-let [const-expr (:const-expr info)]
                 {:const-expr const-expr}))
             (let [info (resolve-var env sym)]
-              (assoc ret :op :var :info info))))))))
+              (merge (assoc ret :op :var :info info)
+                     (select-keys info [:op :name :ns :tag])))))))))
 
 (defn excluded?
   #?(:cljs {:tag boolean})
