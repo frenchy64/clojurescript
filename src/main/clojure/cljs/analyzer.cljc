@@ -1062,23 +1062,27 @@
    (let [locals (:locals env)]
      (if #?(:clj  (= "js" (namespace sym))
             :cljs (identical? "js" (namespace sym)))
-       (do
-         (when (contains? locals (-> sym name symbol))
-           (warning :js-shadowed-by-local env {:name sym}))
-         (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
-           (when (and (not (has-extern? pre))
-                      ;; ignore exists? usage
-                      (not (-> sym meta ::no-resolve)))
-             (swap! env/*compiler* update-in
-               (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
-           (merge
-             {:op :js-var
-              :name sym
-              :ns   'js
-              :tag  (with-meta (or (js-tag pre) (:tag (meta sym)) 'js) {:prefix pre})}
-             (when-let [ret-tag (js-tag pre :ret-tag)]
-               {:js-fn-var true
-                :ret-tag ret-tag}))))
+       (let [shadowed-by-local (get locals (-> sym name symbol))]
+         (cond
+           (some? shadowed-by-local)
+           (do (warning :js-shadowed-by-local env {:name sym})
+               (assoc shadowed-by-local :op :local))
+
+           :else
+           (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
+             (when (and (not (has-extern? pre))
+                        ;; ignore exists? usage
+                        (not (-> sym meta ::no-resolve)))
+               (swap! env/*compiler* update-in
+                      (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
+             (merge
+               {:op :js-var
+                :name sym
+                :ns   'js
+                :tag  (with-meta (or (js-tag pre) (:tag (meta sym)) 'js) {:prefix pre})}
+               (when-let [ret-tag (js-tag pre :ret-tag)]
+                 {:js-fn-var true
+                  :ret-tag ret-tag})))))
        (let [s  (str sym)
              lb (get locals sym)
              current-ns (-> env :ns :name)]
