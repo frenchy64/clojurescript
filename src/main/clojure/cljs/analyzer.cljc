@@ -1067,7 +1067,7 @@
            (some? shadowed-by-local)
            (do (warning :js-shadowed-by-local env {:name sym})
                (assert (:op shadowed-by-local))
-               shadowed-by-local)
+               (assoc shadowed-by-local :op :local))
 
            :else
            (let [pre (->> (string/split (name sym) #"\.") (map symbol) vec)]
@@ -2949,6 +2949,7 @@
                                 {:name fld
                                  :line (get-line fld env)
                                  :column (get-col fld env)
+                                 :local :field
                                  :field true
                                  :mutable (-> fld meta :mutable)
                                  :unsynchronized-mutable (-> fld meta :unsynchronized-mutable)
