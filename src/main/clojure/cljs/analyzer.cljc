@@ -3328,6 +3328,24 @@
   [env form]
   (disallowing-recur (parse-invoke* env form)))
 
+(defn desugar-dotted-expr [{:keys [op] :as expr}]
+  (case op
+    :local (if (dotted-symbol? (:name expr))
+             (let [s      (name (:name expr))
+                   idx    (.lastIndexOf s ".")
+                   _ (assert (not= (inc idx) (count s)))
+                   prefix (symbol (subs s 0 idx))
+                   field (symbol (subs s (inc idx)))]
+               {:op :host-field
+                :env (:env expr)
+                :form (list '. prefix field)
+                :target (desugar-dotted-expr (assoc expr :name prefix))
+                :field field
+                :children [:target]})
+             expr)
+    ;:var
+    expr))
+
 (defn analyze-symbol
   "Finds the var associated with sym"
   [env sym]
@@ -3364,15 +3382,16 @@
                          (resolve-existing-var env sym)
                          (resolve-var env sym))]
           (assert (:op info) (:op info))
-          (if-not (true? (:def-var env))
-            (merge
-              (assoc ret :info info)
-              (select-keys info [:op :name :ns :tag])
-              (when-let [const-expr (:const-expr info)]
-                {:const-expr const-expr}))
-            (let [info (resolve-var env sym)]
-              (merge (assoc ret :op :var :info info)
-                     (select-keys info [:op :name :ns :tag])))))))))
+          (desugar-dotted-expr
+            (if-not (true? (:def-var env))
+              (merge
+                (assoc ret :info info)
+                (select-keys info [:op :name :ns :tag])
+                (when-let [const-expr (:const-expr info)]
+                  {:const-expr const-expr}))
+              (let [info (resolve-var env sym)]
+                (merge (assoc ret :op :var :info info)
+                       (select-keys info [:op :name :ns :tag]))))))))))
 
 (defn excluded?
   #?(:cljs {:tag boolean})
