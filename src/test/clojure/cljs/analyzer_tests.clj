@@ -1244,7 +1244,6 @@
             (.getMessage e)))
         "Wrong number of args to quote")))
 
-#_
 (deftest var-args-error-test
   (is (.startsWith
         (try
