@@ -744,18 +744,24 @@
   (is (= (-> (ana (let [a 1] a)) :body :ret :name) 'a))
   (is (= (-> (ana (let [a 1] a)) :body :ret :form) 'a))
   (is (map? (-> (ana (let [a 1] a)) :body :ret :env)))
-      ; TODO handle dotted locals
-      #_
-  (is (not= :local (-> (ana (let [a 1] a.b)) :body :ret :op)))
+  ;; dotted :local
+  (is (= [:host-field 'c :host-field 'b :local 'a] 
+         (-> (ana (let [a 1] a.b.c)) :body :ret
+             ((juxt :op 
+                    :field
+                    (comp :op :target)
+                    (comp :field :target)
+                    (comp :op :target :target)
+                    (comp :name :target :target))))))
   ;local shadow
-  (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body 
+  (is (= 'alert
+         (a/no-warn (-> (ana (let [alert 1] js/alert)) :body 
                         :env :locals
                         (get 'alert)
-                        :name))
-         'alert))
-  (is (= (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret 
-                        ((juxt :op :name))))
-         [:local 'alert]))
+                        :name))))
+  (is (= [:local 'alert]
+         (a/no-warn (-> (ana (let [alert 1] js/alert)) :body :ret 
+                        ((juxt :op :name))))))
   ;loop
   (is (= (-> (ana (loop [])) :op) :loop))
   (is (= (-> (ana (loop [a 1])) :bindings first :op) :binding))
@@ -1163,6 +1169,10 @@
   (is (= [:js-var 'js/console 'js] (-> (ana js/console) ((juxt :op :name :ns)))))
   (is (map? (-> (ana js/console) :env)))
   (is (= 'js/-Infinity (-> (ana js/-Infinity) :form)))
+  ;; TODO dotted :js-var (?)
+#_
+  (is (= [:js-var 'js/console 'js]
+         (-> (ana js/console) ((juxt :op :name :ns)))))
   ;munging
   (is (=
        [false 'a]

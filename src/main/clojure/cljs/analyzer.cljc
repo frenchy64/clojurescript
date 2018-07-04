@@ -1066,7 +1066,6 @@
          (cond
            (some? shadowed-by-local)
            (do (warning :js-shadowed-by-local env {:name sym})
-               (assert (:op shadowed-by-local))
                (assoc shadowed-by-local :op :local))
 
            :else
