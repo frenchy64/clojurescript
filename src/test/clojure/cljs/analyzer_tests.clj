@@ -694,9 +694,26 @@
       ; FIXME deviates from tools.analyzer, :name is always unqualified
   (is (= [:var 'cljs.core 'cljs.core/inc 'inc] (-> (ana inc) ((juxt :op :ns :name :form)))))
   (is (= [:var 'cljs.core 'cljs.core/inc 'cljs.core/inc] (-> (ana cljs.core/inc) ((juxt :op :ns :name :form)))))
-      ; TODO dotted variables should be nested fields/methods
-      #_
-  (is (not= :var (-> (ana inc.foo.bar) :op)))
+  ;; dotted :var
+  (is (= [:host-field 'bar :host-field 'foo :var 'cljs.core/inc 'cljs.core/inc]
+         (-> (ana inc.foo.bar)
+             ((juxt :op 
+                    :field
+                    (comp :op :target)
+                    (comp :field :target)
+                    (comp :op :target :target)
+                    (comp :name :target :target)
+                    (comp :name :info :target :target))))))
+  ;; dotted :local
+  (is (= [:host-field 'c :host-field 'b :local 'a 'a]
+         (-> (ana (let [a 1] a.b.c)) :body :ret
+             ((juxt :op 
+                    :field
+                    (comp :op :target)
+                    (comp :field :target)
+                    (comp :op :target :target)
+                    (comp :name :target :target)
+                    (comp :name :info :target :target))))))
   ;do
   (is (= (-> (ana (do 1 2)) :op) :do))
   (is (= (-> (ana (do 1 2)) :children) [:statements :ret]))

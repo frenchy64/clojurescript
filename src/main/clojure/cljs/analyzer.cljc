@@ -3330,19 +3330,24 @@
 
 (defn desugar-dotted-expr [{:keys [op] :as expr}]
   (case op
-    :local (if (dotted-symbol? (:name expr))
-             (let [s      (name (:name expr))
-                   idx    (.lastIndexOf s ".")
-                   _ (assert (not= (inc idx) (count s)))
-                   prefix (symbol (subs s 0 idx))
-                   field (symbol (subs s (inc idx)))]
-               {:op :host-field
-                :env (:env expr)
-                :form (list '. prefix field)
-                :target (desugar-dotted-expr (assoc expr :name prefix))
-                :field field
-                :children [:target]})
-             expr)
+    (:var :local) (if (dotted-symbol? (symbol (name (:name expr))))
+                    (let [s      (name (:name expr))
+                          idx    (.lastIndexOf s ".")
+                          _ (assert (not= (inc idx) (count s)))
+                          prefix (with-meta (symbol (namespace (:name expr)) (subs s 0 idx))
+                                            (meta (:form expr)))
+                          field (symbol (subs s (inc idx)))]
+                      (assert (not (:const-expr expr)))
+                      {:op :host-field
+                       :env (:env expr)
+                       :form (list '. prefix field)
+                       :target (desugar-dotted-expr (-> expr
+                                                        (assoc :name prefix
+                                                               :form prefix)
+                                                        (assoc-in [:info :name] prefix)))
+                       :field field
+                       :children [:target]})
+                    expr)
     ;:var
     expr))
 
