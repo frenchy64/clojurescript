@@ -1517,7 +1517,8 @@
             parser))
 
         finally (when (seq fblock)
-                  (disallowing-recur (analyze (assoc env :context :statement) `(do ~@(rest fblock)))))
+                  (-> (disallowing-recur (analyze (assoc env :context :statement) `(do ~@(rest fblock))))
+                      (assoc :body? true)))
         e (when (or (seq cblocks) dblock) (gensym "e"))
         default (if-let [[_ _ name & cb] dblock]
                   `(cljs.core/let [~name ~e] ~@cb)
@@ -1544,7 +1545,7 @@
         try (disallowing-recur (analyze (if (or e finally) catchenv env) `(do ~@body)))]
 
     {:env env :op :try :form form
-     :body try
+     :body (assoc try :body? true)
      :finally finally
      :name e
      :catch catch
@@ -1828,7 +1829,7 @@
        :form form
        :recurs recurs}
       (if (some? expr)
-        {:body expr
+        {:body (assoc expr :body? true)
          :children [:params :body]}
         {:children [:params]}))))
 
@@ -1982,7 +1983,8 @@
                     [(assoc-in env [:locals name] be')
                      (conj bes be')]))
           [meth-env []] bes)
-        expr (analyze (assoc meth-env :context (if (= :expr context) :return context)) `(do ~@exprs))]
+        expr (-> (analyze (assoc meth-env :context (if (= :expr context) :return context)) `(do ~@exprs))
+                 (assoc :body? true))]
     {:env env :op :letfn :bindings bes :body expr :form form
      :children [:bindings :body]}))
 
@@ -2098,7 +2100,7 @@
     {:op op
      :env encl-env
      :bindings bes
-     :body expr
+     :body (assoc expr :body? true)
      :form form
      :children children}))
 
