@@ -181,8 +181,7 @@
   {:op   :js-object
    :doc  "Node for a js object literal"
    :keys [[:form "`#js {[key value]*}`"]
-          ^:children
-          [:keys "A vector of AST nodes representing the keys of the js object"]
+          [:keys "A vector of values representing the keys of the js object"]
           ^:children
           [:vals "A vector of AST nodes representing the vals of the js object"]]}
   {:op   :js-var
