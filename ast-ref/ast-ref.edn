@@ -169,7 +169,7 @@
           ]}
   {:op   :js
    :doc  "Node for a js* special-form expression"
-   :keys [[:form "`(js* js-string arg*)"]
+   :keys [[:form "`(js* js-string arg*)`"]
           [:segs "A vector of js strings that delimit the compiled args"]
           ^:children
           [:args "A vector of AST nodes representing the cljs expressions that will be interposed with the strings in segs"]]}
