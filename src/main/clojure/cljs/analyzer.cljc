@@ -979,14 +979,14 @@
 
 (defmethod resolve* :js
   [env sym full-ns current-ns]
-  {:op :js-var
-   :name (symbol (str full-ns) (str (name sym)))
+  {:name (symbol (str full-ns) (str (name sym)))
+   :op :js-var
    :ns full-ns})
 
 (defmethod resolve* :node
   [env sym full-ns current-ns]
-  {:op :js-var
-   :name (symbol (str current-ns) (str (munge-node-lib full-ns) "." (name sym)))
+  {:name (symbol (str current-ns) (str (munge-node-lib full-ns) "." (name sym)))
+   :op :js-var
    :ns current-ns})
 
 (defmethod resolve* :global
@@ -995,8 +995,8 @@
     (when-not (has-extern? pre)
       (swap! env/*compiler* update-in
         (into [::namespaces current-ns :externs] pre) merge {}))
-    {:op :js-var
-     :name (symbol (str current-ns) (str (munge-global-export full-ns) "." (name sym)))
+    {:name (symbol (str current-ns) (str (munge-global-export full-ns) "." (name sym)))
+     :op :js-var
      :ns current-ns
      :tag (with-meta 'js {:prefix pre})}))
 
@@ -1018,8 +1018,8 @@
       (warning :private-var-access env
         {:sym sym-name}))
     (merge sym-ast
-      {:op :var
-       :name sym-name
+      {:name sym-name
+       :op :var
        :ns   full-ns})))
 
 (defn required? [ns env]
@@ -1040,18 +1040,18 @@
   (let [ns (resolve-ns-alias env ns)
         module-type (ns->module-type ns)]
     (case module-type
-      :js     {:op :js-var
-               :name (symbol
+      :js     {:name (symbol
                        (or (gets @env/*compiler* :js-module-index ns :name)
                            (resolve-ns-alias env ns)))
+               :op :js-var
                :ns 'js}
-      :node   {:op :js-var
-               :name (symbol (str current-ns)
+      :node   {:name (symbol (str current-ns)
                        (munge-node-lib (resolve-ns-alias env ns)))
+               :op :js-var
                :ns current-ns}
-      :global {:op :js-var
-               :name (symbol (str current-ns)
+      :global {:name (symbol (str current-ns)
                        (munge-global-export (resolve-ns-alias env ns)))
+               :op :js-var
                :ns current-ns})))
 
 (defn resolve-var
@@ -1074,10 +1074,10 @@
                         ;; ignore exists? usage
                         (not (-> sym meta ::no-resolve)))
                (swap! env/*compiler* update-in
-                      (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
+                 (into [::namespaces (-> env :ns :name) :externs] pre) merge {}))
              (merge
-               {:op :js-var
-                :name sym
+               {:name sym
+                :op :js-var
                 :ns   'js
                 :tag  (with-meta (or (js-tag pre) (:tag (meta sym)) 'js) {:prefix pre})}
                (when-let [ret-tag (js-tag pre :ret-tag)]
@@ -1117,13 +1117,13 @@
                   :name (symbol (str full-ns) suffix)}
                  (if-some [info (gets @env/*compiler* ::namespaces current-ns :defs prefix)]
                    (merge info
-                          {:op :var
-                           :name (symbol (str current-ns) (str sym))
-                           :ns current-ns})
+                     {:name (symbol (str current-ns) (str sym))
+                      :op :var
+                      :ns current-ns})
                    (merge (gets @env/*compiler* ::namespaces prefix :defs (symbol suffix))
-                          {:op :var
-                           :name (if (= "" prefix) (symbol suffix) (symbol (str prefix) suffix))
-                           :ns prefix})))))
+                     {:name (if (= "" prefix) (symbol suffix) (symbol (str prefix) suffix))
+                      :op :var
+                      :ns prefix})))))
 
            (some? (gets @env/*compiler* ::namespaces current-ns :uses sym))
            (let [full-ns (gets @env/*compiler* ::namespaces current-ns :uses sym)]
@@ -1143,8 +1143,8 @@
              (when (some? confirm)
                (confirm env current-ns sym))
              (merge (gets @env/*compiler* ::namespaces current-ns :defs sym)
-               {:op :var
-                :name (symbol (str current-ns) (str sym))
+               {:name (symbol (str current-ns) (str sym))
+                :op :var
                 :ns current-ns}))
 
            (core-name? env sym)
@@ -1152,8 +1152,8 @@
              (when (some? confirm)
                (confirm env 'cljs.core sym))
              (merge (gets @env/*compiler* ::namespaces 'cljs.core :defs sym)
-               {:op :var
-                :name (symbol "cljs.core" (str sym))
+               {:name (symbol "cljs.core" (str sym))
+                :op :var
                 :ns 'cljs.core}))
 
            (invokeable-ns? s env)
@@ -1164,8 +1164,8 @@
              (when (some? confirm)
                (confirm env current-ns sym))
              (merge (gets @env/*compiler* ::namespaces current-ns :defs sym)
-               {:op :var
-                :name (symbol (str current-ns) (str sym))
+               {:name (symbol (str current-ns) (str sym))
+                :op :var
                 :ns current-ns}))))))))
 
 (defn resolve-existing-var
