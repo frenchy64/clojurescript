@@ -1112,7 +1112,7 @@
                  suffix (subs s (inc idx))]
              (if-some [lb (get locals prefix)]
                {:op :local
-                :name (symbol (str (:name lb)) suffix)}
+                :name (symbol (str (:name lb) "." suffix))}
                (if-some [full-ns (gets @env/*compiler* ::namespaces current-ns :imports prefix)]
                  {:op :js-var
                   :name (symbol (str full-ns) suffix)}
