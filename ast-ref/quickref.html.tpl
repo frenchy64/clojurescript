@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>cljs.analyzer AST Quickref</title>
+  <title>cljs.analyzer AST Quickref (alpha)</title>
   <style>
   * {
     box-sizing: border-box;
@@ -100,7 +100,7 @@
     </ul>
   </nav>
   <main>
-    <h1 class="page-title">cljs.analyzer AST Quickref</h1>
+    <h1 class="page-title">cljs.analyzer AST Quickref (alpha)</h1>
     <h1>Common AST fields</h1>
     {common}
     <h1>Nodes reference</h1>
