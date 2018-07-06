@@ -676,7 +676,7 @@
      :locals {}
      :fn-scope []
      :js-globals (into {}
-                   (map #(vector % {:name %})
+                   (map #(vector % {:op :js-var :name % :ns 'js})
                      '(alert window document console escape unescape
                        screen location navigator history location
                        global process require module exports)))}))
@@ -1054,6 +1054,16 @@
                :op :js-var
                :ns current-ns})))
 
+;; core.async calls `macroexpand-1` manually with an ill-formed
+;; :locals map. Normally :locals maps symbols maps, but
+;; core.async adds entries mapping symbols to symbols. We work
+;; around that specific case here. This is called defensively
+;; every time we lookup the :locals map.
+(defn handle-symbol-local [sym lb]
+  (if (symbol? lb)
+    {:name sym}
+    lb))
+
 (defn resolve-var
   "Resolve a var. Accepts a side-effecting confirm fn for producing
    warnings about unresolved vars."
@@ -1062,7 +1072,8 @@
    (let [locals (:locals env)]
      (if #?(:clj  (= "js" (namespace sym))
             :cljs (identical? "js" (namespace sym)))
-       (let [shadowed-by-local (get locals (-> sym name symbol))]
+       (let [symn (-> sym name symbol)
+             shadowed-by-local (handle-symbol-local symn (get locals symn))]
          (cond
            (some? shadowed-by-local)
            (do (warning :js-shadowed-by-local env {:name sym})
@@ -1084,7 +1095,7 @@
                  {:js-fn-var true
                   :ret-tag ret-tag})))))
        (let [s  (str sym)
-             lb (get locals sym)
+             lb (handle-symbol-local sym (get locals sym))
              current-ns (-> env :ns :name)]
          (cond
            (some? lb) (assoc lb :op :local)
@@ -1109,7 +1120,7 @@
            (let [idx    (.indexOf s ".")
                  prefix (symbol (subs s 0 idx))
                  suffix (subs s (inc idx))]
-             (if-some [lb (get locals prefix)]
+             (if-some [lb (handle-symbol-local prefix (get locals prefix))]
                {:op :local
                 :name (symbol (str (:name lb) "." suffix))}
                (if-some [full-ns (gets @env/*compiler* ::namespaces current-ns :imports prefix)]
@@ -1775,7 +1786,7 @@
           nmeta  (meta name)
           tag    (:tag nmeta)
           shadow (when (some? locals)
-                   (locals name))
+                   (handle-symbol-local name (locals name)))
           env    (merge (select-keys env [:context])
                    {:line line :column column})
           param  {:op :binding
@@ -1838,7 +1849,7 @@
 (defn fn-name-var [env locals name]
   (when (some? name)
     (let [ns       (-> env :ns :name)
-          shadow   (get locals name)
+          shadow   (handle-symbol-local name (get locals name))
           shadow   (when (nil? shadow)
                      (get-in env [:js-globals name]))
           fn-scope (:fn-scope env)
@@ -1961,7 +1972,7 @@
                               :line (get-line n env)
                               :column (get-col n env)
                               :local :letfn
-                              :shadow (locals n)
+                              :shadow (handle-symbol-local n (locals n))
                               :variadic? (:variadic? fexpr)
                               :max-fixed-arity (:max-fixed-arity fexpr)
                               :method-params (map :params (:methods fexpr))}
@@ -2042,19 +2053,20 @@
           (let [init-expr (analyze-let-binding-init env init (cons {:params bes} *loop-lets*))
                 line (get-line name env)
                 col (get-col name env)
+                shadow (handle-symbol-local name (get-in env [:locals name]))
                 be {:name name
                     :line line
                     :column col
                     :init init-expr
                     :tag (get-let-tag name init-expr)
                     :local op
-                    :shadow (-> env :locals name)
+                    :shadow shadow
                     ;; Give let* bindings same shape as var so
                     ;; they get routed correctly in the compiler
                     :op :binding
                     :env {:line line :column col}
                     :info {:name name
-                           :shadow (-> env :locals name)}
+                           :shadow shadow}
                     :binding-form? true}
                 be (if (= :fn (:op init-expr))
                      ;; TODO: can we simplify - David
@@ -2211,7 +2223,7 @@
                           (set! *cljs-warnings* (assoc *cljs-warnings* :infer-warning val)))
                         (when (some? (:const (resolve-var (dissoc env :locals) target)))
                           (throw (error env "Can't set! a constant")))
-                        (let [local (-> env :locals target)]
+                        (let [local (handle-symbol-local target (-> env :locals target))]
                           (when-not (or (nil? local)
                                         (and (:field local)
                                              (or (:mutable local)
@@ -3356,6 +3368,7 @@
     ;:var
     expr))
 
+
 (defn analyze-symbol
   "Finds the var associated with sym"
   [env sym]
@@ -3372,9 +3385,9 @@
                  env)
           ret  {:env env :form sym}
           lcls (:locals env)]
-      (if-some [lb (get lcls sym)]
+      (if-some [lb (handle-symbol-local sym (get lcls sym))]
         (merge (assoc ret :op :local :info lb)
-               (select-keys lb [:name :local :arg-id :variadic?]))
+               (select-keys lb [:name :local :arg-id :variadic? :init]))
         (let [sym-meta (meta sym)
               sym-ns (namespace sym)
               cur-ns (str (-> env :ns :name))
