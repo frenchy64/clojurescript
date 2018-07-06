@@ -3361,8 +3361,11 @@
                        :target (desugar-dotted-expr (-> expr
                                                         (assoc :name prefix
                                                                :form prefix)
-                                                        (assoc-in [:info :name] prefix)))
+                                                        (dissoc :tag)
+                                                        (assoc-in [:info :name] prefix)
+                                                        (assoc-in [:env :context] :expr)))
                        :field field
+                       :tag (:tag expr)
                        :children [:target]})
                     expr)
     ;:var
