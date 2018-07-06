@@ -1727,3 +1727,8 @@
                :with-core? true})]
     (is (empty? @ws))
     (is (not (string/includes? res "cljs.core")))))
+
+(deftest test-locals-mapped-to-sym
+  (testing "analyze should be robust to :locals mapping to symbols"
+    (is (= [:local 'a] (-> (a/analyze (assoc-in test-env [:locals 'a] 'foo) 'a)
+                           ((juxt :op :name)))))))
